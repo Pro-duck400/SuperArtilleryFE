@@ -177,7 +177,7 @@ describe('UIManager private game flow', () => {
 
     expect((document.getElementById('internetGameRow') as HTMLDivElement).hidden).toBe(true);
     expect((document.getElementById('hotSeatPanel') as HTMLDivElement).hidden).toBe(false);
-    expect((document.getElementById('serverRow') as HTMLDivElement).hidden).toBe(true);
+    expect((document.getElementById('serverRow') as HTMLDivElement).hidden).toBe(false);
 
     (document.querySelector<HTMLButtonElement>('[data-mode="internet"]') as HTMLButtonElement).click();
     expect((document.getElementById('serverRow') as HTMLDivElement).hidden).toBe(false);

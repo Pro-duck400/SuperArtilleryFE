@@ -12,7 +12,24 @@ export interface RenderState {
 
 const ACTIVE_TRAJECTORY_COLOR = '#555555';
 const CASTLE_EMOJIS = [
-  '🏰', '🏯', '🏟️', '🏛️', '🛖', '🏚️', '🏠', '🏡', '🏢', '🏣', '🏤', '🏥', '🏦', '🏨', '🏩', '🏪', '🏫', '🏬', '🏭', '💒', '🗼', '⛪', '🗽', '🕌', '🛕', '🕍', '⛩️', '🕋', '⛺', '🎪'
+  '🏰', '🏯', '🏟️', '🏛️', '🛖', '🏚️', '🏠', '🏡', '🏦', '🏫', '💒', '🗼', '⛪', '🗽', '🕌', '🛕', '🕍', '🎪', '🏭'
+] as const;
+const OBJECT_EMOJIS = [
+  '♖', '♜'
+] as const;
+const PLANTS_EMOJIS = [
+  '🌳', '🌵', '🌲', '🌴', '🌱', '🌷', '🌿', '🪴', '🌹', '🌼', '🌻', '🌾', '🥀', '🍄', '🍄‍🟫', '🎄', '🎍', '🪵'
+] as const;
+const INSECT_EMOJIS = [
+  '🐝', '🐛', '🐞', '🐜', '🪲', '🪳', '🦟', '🦗', '🕷'
+] as const;
+const BIRDS_EMOJIS = [
+  '🐧', '🐦', '🐤', '🐣', '🐥', '🦆', '🦉', '🐦‍⬛', '🐓', '🦃', '🦤', '🦚', '🦜', '🦢', '🪿', '🦩'
+] as const;
+const ANIMALS_EMOJIS = [
+  '🐅', '🐆', '🐢', '🐍', '🦖', '🦕', '🐒', '🐌', '🦓', '🦍', '🦧', '🦣', '🐘', '🦛', '🦏', '🦨', '🦡', '🐪',
+  '🐫', '🐎', '🦌', '🦬', '🐖', '🐏', '🐑', '🦙', '🦒', '🦘', '🦬', '🐃', '🐂', '🐄', '🐖', '🐐', '🦌', '🐕',
+  '🐩', '🐈', '🐈‍⬛', '🐇', '🐉', '🐁', '🐀', '🦔'
 ] as const;
 
 export class Renderer {
@@ -214,11 +231,11 @@ export class Renderer {
     this.ctx.setLineDash([2, 2]); // Dashed line
     this.ctx.beginPath();
     this.ctx.moveTo(trajectory[0].x, trajectory[0].y);
-    
+
     for (let i = 1; i < trajectory.length; i++) {
       this.ctx.lineTo(trajectory[i].x, trajectory[i].y);
     }
-    
+
     this.ctx.stroke();
     this.ctx.restore();
   }

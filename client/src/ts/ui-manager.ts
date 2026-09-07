@@ -482,7 +482,6 @@ export class UIManager {
   private updateLobbyVisibility(): void {
     if (this.joinOnlyMode) return;
     const joining = this.lobbyMode === 'join';
-    this.serverRow.hidden = !joining && this.createMode === 'device';
     this.joinGameRow.hidden = !joining;
     this.createGameRow.hidden = joining;
     this.internetGameRow.hidden = joining || this.createMode !== 'internet';
