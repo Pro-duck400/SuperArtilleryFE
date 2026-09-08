@@ -75,6 +75,71 @@ describe('GameManager', () => {
   });
 
   describe('acceptInvitation', () => {
+    it('allocates multiple lobby slots and reports readiness', () => {
+      const created = gameManager.createGame('Alice', undefined, undefined, 4);
+      if ('error' in created) throw new Error('Should create game');
+
+      const bob = gameManager.acceptInvitation(created.inviteCode, 'Bob');
+      const charlie = gameManager.acceptInvitation(created.inviteCode, 'Charlie');
+      if ('error' in bob || 'error' in charlie) throw new Error('Should accept invitations');
+
+      const aliceSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      const bobSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      const charlieSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      gameManager.connectPlayer(created.gameId, created.playerToken, aliceSocket);
+      gameManager.connectPlayer(created.gameId, bob.playerToken, bobSocket);
+      gameManager.connectPlayer(created.gameId, charlie.playerToken, charlieSocket);
+
+      const status = gameManager.getGameStatus(created.gameId, created.playerToken);
+      if ('error' in status) throw new Error('Should return lobby status');
+      expect(status.requiredPlayers).toBe(4);
+      expect(status.playersConnected).toBe(3);
+      expect(status.slots.map(slot => slot.playerName)).toEqual(['Alice', 'Bob', 'Charlie', undefined]);
+      expect(status.slots.map(slot => slot.status)).toEqual(['ready', 'ready', 'ready', 'waiting']);
+    });
+
+    it('lets the creator skip a partially filled lobby and start with two players', () => {
+      const created = gameManager.createGame('Alice', undefined, undefined, 4);
+      if ('error' in created) throw new Error('Should create game');
+      const accepted = gameManager.acceptInvitation(created.inviteCode, 'Bob');
+      if ('error' in accepted) throw new Error('Should accept invitation');
+
+      const aliceSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      const bobSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      gameManager.connectPlayer(created.gameId, created.playerToken, aliceSocket);
+      gameManager.connectPlayer(created.gameId, accepted.playerToken, bobSocket);
+
+      const skipped = gameManager.skipWaiting(created.gameId, created.playerToken);
+      if ('error' in skipped) throw new Error('Should skip waiting players');
+      expect(skipped.started).toBe(true);
+      expect(skipped.playersConnected).toBe(2);
+      expect(skipped.requiredPlayers).toBe(2);
+    });
+
+    it('starts a full three-player lobby and broadcasts the roster to every socket', () => {
+      const created = gameManager.createGame('Alex', undefined, undefined, 3);
+      if ('error' in created) throw new Error('Should create game');
+      const bob = gameManager.acceptInvitation(created.inviteCode, 'Bob');
+      const alice = gameManager.acceptInvitation(created.inviteCode, 'Alice');
+      if ('error' in bob || 'error' in alice) throw new Error('Should accept invitations');
+
+      const sockets = [0, 1, 2].map(() => ({ readyState: WebSocket.OPEN, send: vi.fn() }));
+      gameManager.connectPlayer(created.gameId, created.playerToken, sockets[0] as any);
+      gameManager.connectPlayer(created.gameId, bob.playerToken, sockets[1] as any);
+      gameManager.connectPlayer(created.gameId, alice.playerToken, sockets[2] as any);
+
+      const status = gameManager.getGameStatus(created.gameId, created.playerToken);
+      if ('error' in status) throw new Error('Should return game status');
+      expect(status.status).toBe('active');
+      expect(status.playersConnected).toBe(3);
+      for (const socket of sockets) {
+        const start = socket.send.mock.calls
+          .map(([payload]) => JSON.parse(payload as string))
+          .find(message => message.type === 'game_start');
+        expect(start.players.map((player: { playerName: string }) => player.playerName)).toEqual(['Alex', 'Bob', 'Alice']);
+      }
+    });
+
     it('accepts a valid invitation via token', () => {
       const created = gameManager.createGame('Alice');
       if ('error' in created) throw new Error('Should create game');
@@ -299,6 +364,34 @@ describe('GameManager', () => {
       }
     });
 
+    it('alternates authenticated turns between both players', () => {
+      const created = gameManager.createGame('Alice');
+      if ('error' in created) throw new Error('Should create game');
+      const accepted = gameManager.acceptInvitation(created.inviteCode, 'Bob');
+      if ('error' in accepted) throw new Error('Should accept invitation');
+
+      const aliceSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      const bobSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      gameManager.connectPlayer(created.gameId, created.playerToken, aliceSocket);
+      gameManager.connectPlayer(created.gameId, accepted.playerToken, bobSocket);
+
+      const firstShot = gameManager.fire(created.gameId, created.playerToken, 45, 30);
+      expect('error' in firstShot).toBe(false);
+      const firstTurn = bobSocket.send.mock.calls
+        .map(([payload]: [string]) => JSON.parse(payload))
+        .filter((message: { type: string }) => message.type === 'turn_change')
+        .at(-1);
+      expect(firstTurn.playerId_turn).toBe(1);
+
+      const secondShot = gameManager.fire(created.gameId, accepted.playerToken, 45, 30);
+      expect('error' in secondShot).toBe(false);
+      const secondTurn = aliceSocket.send.mock.calls
+        .map(([payload]: [string]) => JSON.parse(payload))
+        .filter((message: { type: string }) => message.type === 'turn_change')
+        .at(-1);
+      expect(secondTurn.playerId_turn).toBe(0);
+    });
+
     it('rejects fire with invalid session token', () => {
       const created = gameManager.createGame('Alice');
       if ('error' in created) throw new Error('Should create game');
@@ -357,6 +450,33 @@ describe('GameManager', () => {
       expect(game.status).toBe('active');
       expect(firstSocket.send).toHaveBeenCalledWith(expect.stringContaining('"round":2'));
       expect(secondSocket.send).toHaveBeenCalledWith(expect.stringContaining('"round":2'));
+    });
+
+    it('keeps final rematch answers in the status payload before clearing the state', () => {
+      const created = gameManager.createGame('Alice');
+      if ('error' in created) throw new Error('Should create game');
+      const accepted = gameManager.acceptInvitation(created.inviteCode, 'Bob');
+      if ('error' in accepted) throw new Error('Should accept invitation');
+
+      const firstSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      const secondSocket = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
+      gameManager.connectPlayer(created.gameId, created.playerToken, firstSocket);
+      gameManager.connectPlayer(accepted.gameId, accepted.playerToken, secondSocket);
+
+      const game = (gameManager as any).games.get(created.gameId);
+      game.status = 'finished';
+      game.gameFinishedAt = Date.now();
+
+      const firstResponse = gameManager.requestRematch(created.gameId, created.playerToken, 'play_again');
+      expect(firstResponse).toMatchObject({ success: true, playersReady: 1, roundStarted: false });
+
+      const finalResponse = gameManager.requestRematch(created.gameId, accepted.playerToken, 'had_enough');
+      expect(finalResponse).toMatchObject({ success: true, playersReady: 1, roundStarted: false });
+      expect(finalResponse.players).toEqual(expect.arrayContaining([
+        expect.objectContaining({ playerId: 0, playerName: 'Alice', answer: 'play_again' }),
+        expect.objectContaining({ playerId: 1, playerName: 'Bob', answer: 'had_enough' })
+      ]));
+      expect((gameManager as any).games.get(created.gameId).rematchAnswers).toEqual([null, null]);
     });
   });
 

@@ -5,11 +5,19 @@ export interface CreateGameResponse {
   playerToken: string;
   inviteUrl: string;
   inviteCode: string;
+  playerCount: number;
+}
+
+export interface LobbySlot {
+  playerId: number;
+  playerName?: string;
+  status: 'waiting' | 'ready' | 'skipped';
 }
 
 export interface AcceptInvitationResponse {
   gameId: string;
   playerToken: string;
+  playerId: number;
 }
 
 export interface CreateHotSeatResponse {
@@ -23,15 +31,25 @@ export interface CreateHotSeatResponse {
 export interface GameStatusResponse {
   status: 'pending' | 'active' | 'finished' | 'expired';
   playersConnected: number;
-  requiredPlayers: 2;
+  requiredPlayers: number;
   rematchReady: boolean;
   rematchPlayersReady: number;
+  slots: LobbySlot[];
+  canSkipWaiting: boolean;
+}
+
+export interface SkipWaitingResponse {
+  started: boolean;
+  playersConnected: number;
+  requiredPlayers: number;
+  slots: LobbySlot[];
 }
 
 export interface RematchResponse {
-  ready: boolean;
-  playersReady: number;
-  requiredPlayers: 2;
+  answer: 'play_again' | 'had_enough';
+  playersAnswered: number;
+  requiredPlayers: number;
+  players: Array<{ playerId: number; playerName: string; answer?: 'play_again' | 'had_enough' }>;
   roundStarted: boolean;
 }
 
@@ -106,13 +124,13 @@ export class ApiClient {
   /**
    * Create a new private game
    */
-  public async createGame(playerName: string, clientUrl: string): Promise<CreateGameResponse> {
+  public async createGame(playerName: string, clientUrl: string, playerCount: number = 2): Promise<CreateGameResponse> {
     const response = await this.fetchWithTimeout(`${this.baseUrl}/api/v1/games`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ playerName, clientUrl })
+      body: JSON.stringify({ playerName, clientUrl, playerCount })
     });
 
     if (!response.ok) {
@@ -195,6 +213,17 @@ export class ApiClient {
     return response.json();
   }
 
+  public async skipWaiting(gameId: string, sessionToken: string): Promise<SkipWaitingResponse> {
+    const response = await this.fetchWithTimeout(
+      `${this.baseUrl}/api/v1/games/${gameId}/skip-waiting?sessionToken=${encodeURIComponent(sessionToken)}`,
+      { method: 'POST' }
+    );
+    if (!response.ok) {
+      throw new Error(await this.extractErrorMessage(response, 'Unable to skip waiting players'));
+    }
+    return response.json();
+  }
+
   /**
    * Fire a shot (updated for session tokens)
    */
@@ -202,7 +231,8 @@ export class ApiClient {
     gameId: string,
     sessionToken: string,
     angle: number,
-    velocity: number
+    velocity: number,
+    direction?: 'Left' | 'Right'
   ): Promise<void> {
     const response = await this.fetchWithTimeout(
       `${this.baseUrl}/api/v1/fire?sessionToken=${encodeURIComponent(sessionToken)}`,
@@ -211,7 +241,7 @@ export class ApiClient {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ gameId, angle, velocity })
+        body: JSON.stringify({ gameId, angle, velocity, ...(direction ? { direction } : {}) })
       }
     );
 
@@ -220,10 +250,14 @@ export class ApiClient {
     }
   }
 
-  public async requestRematch(gameId: string, sessionToken: string): Promise<RematchResponse> {
+  public async requestRematch(gameId: string, sessionToken: string, answer: 'play_again' | 'had_enough'): Promise<RematchResponse> {
     const response = await this.fetchWithTimeout(
       `${this.baseUrl}/api/v1/games/${gameId}/rematch?sessionToken=${encodeURIComponent(sessionToken)}`,
-      { method: 'POST' }
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ answer })
+      }
     );
 
     if (!response.ok) {

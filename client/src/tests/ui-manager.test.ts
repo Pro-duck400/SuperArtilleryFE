@@ -146,6 +146,7 @@ describe('UIManager private game flow', () => {
     const serverInput = document.getElementById('serverAddressInput') as HTMLInputElement;
     const button = document.getElementById('actionButton') as HTMLButtonElement;
 
+    (document.querySelector<HTMLButtonElement>('#lobbyModeOptions [data-mode="create"]') as HTMLButtonElement).click();
     nameInput.value = 'Alice';
     serverInput.value = 'http://localhost:3000';
     button.click();
@@ -172,6 +173,7 @@ describe('UIManager private game flow', () => {
     const hotSeatSpy = vi.fn();
     ui.onHotSeat(hotSeatSpy);
 
+    (document.querySelector<HTMLButtonElement>('[data-mode="create"]') as HTMLButtonElement).click();
     const deviceOption = document.querySelector<HTMLButtonElement>('[data-mode="device"]') as HTMLButtonElement;
     deviceOption.click();
 
@@ -325,6 +327,7 @@ describe('UIManager private game flow', () => {
     const inviteLabel = document.getElementById('inviteInputLabel') as HTMLLabelElement;
     const actionButton = document.getElementById('actionButton') as HTMLButtonElement;
 
+    (document.querySelector<HTMLButtonElement>('[data-mode="create"]') as HTMLButtonElement).click();
     ui.showRegistering();
 
     expect(actionButton.disabled).toBe(true);
@@ -425,7 +428,7 @@ describe('UIManager private game flow', () => {
 
     ui.setRematchWaiting(1);
     expect(rematchButton.disabled).toBe(true);
-    expect(rematchButton.textContent).toBe('Waiting (1/2)');
+    expect(rematchButton.textContent).toBe('Waiting (1)');
 
     ui.prepareForNewRound();
     expect(rematchButton.style.display).toBe('none');

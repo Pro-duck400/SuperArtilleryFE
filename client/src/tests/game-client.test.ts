@@ -86,4 +86,20 @@ describe('GameClient private-game flow', () => {
 
     expect(statusSpy).toHaveBeenCalledWith(1);
   });
+
+  it('applies consecutive turn changes for both players', () => {
+    const game = new Game();
+    game.setPlayer(0, 'Alice');
+    const client = new GameClient('http://localhost:3000', 'ws://localhost:3000', game);
+    const players = [
+      { playerId: 0, playerName: 'Alice', active: true, connected: true },
+      { playerId: 1, playerName: 'Bob', active: true, connected: true }
+    ];
+
+    (client as any).handleMessage({ type: 'turn_change', playerId_turn: 1, players });
+    expect(game.getState()).toMatchObject({ currentTurn: 1, isMyTurn: false });
+
+    (client as any).handleMessage({ type: 'turn_change', playerId_turn: 0, players });
+    expect(game.getState()).toMatchObject({ currentTurn: 0, isMyTurn: true });
+  });
 });

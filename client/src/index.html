@@ -65,7 +65,16 @@
       </div>
       <div id="internetGameRow" class="lobby-row">
         <input type="text" id="playerNameInput" placeholder="Player name" maxlength="15" />
+        <label>
+          Players:
+          <input type="number" id="playerCountInput" min="2" max="9" value="2" />
+        </label>
         <button id="actionButton" type="button">Create Game</button>
+      </div>
+
+      <div id="lobbyStatus" class="lobby-status" hidden>
+        <ol id="lobbySlots" aria-live="polite"></ol>
+        <button id="skipWaitingButton" type="button" hidden>Skip waiting players</button>
       </div>
 
       <div id="joinGameRow" class="lobby-row" hidden>
@@ -106,10 +115,16 @@
       <div id="battlefieldFrame">
         <div id="windLabel" aria-label="Wind strength"></div>
         <canvas id="gameCanvas" width="420" height="240"></canvas>
-        <div id="playerNameLeft" class="player-name-overlay player-name-left">...</div>
-        <div id="playerNameRight" class="player-name-overlay player-name-right">...</div>
+        <div id="playerNameRoster" aria-live="polite"></div>
       </div>
       <div id="controls">
+        <label id="directionField" hidden>
+          <span>Direction:</span>
+          <select id="directionInput">
+            <option value="Left">Left</option>
+            <option value="Right">Right</option>
+          </select>
+        </label>
         <label hotkey="A">
           <span><u>A</u>ngle:</span>
           <input type="number" id="angleInput" min="0" max="99" maxlength="2" value="45" accesskey="a" />
@@ -119,12 +134,16 @@
           <input type="number" id="velocityInput" min="30" max="999" maxlength="3" value="150" accesskey="v" />
         </label>
         <button id="fireButton" disabled>Fire!</button>
-        <button id="rematchButton" type="button" style="display: none;">Play again</button>
+        <div id="rematchControls" hidden>
+          <ol id="rematchPlayers" aria-live="polite"></ol>
+          <button id="playAgainButton" type="button">Play again</button>
+          <button id="hadEnoughButton" type="button">I had enough</button>
+        </div>
       </div>
 
       <section id="shotHistory" aria-labelledby="shotHistoryTitle">
-        <h2 id="shotHistoryTitle">Your last four shots</h2>
-        <table aria-label="Your last four shots">
+        <h2 id="shotHistoryTitle">Your last shots</h2>
+        <table aria-label="Your last shots">
           <tbody id="shotHistoryRows" aria-live="polite"></tbody>
         </table>
       </section>

@@ -46,6 +46,23 @@ function formatUptime(uptimeSeconds: number): string {
 export function createApiRouter(game: GameManager): Router {
   const router = Router();
 
+  router.use((req, res, next) => {
+    const bodyPlayerName = typeof req.body?.playerName === 'string'
+      ? req.body.playerName
+      : typeof req.body?.firstPlayerName === 'string'
+        ? [req.body.firstPlayerName, req.body.secondPlayerName].filter((name): name is string => typeof name === 'string').join(', ')
+        : undefined;
+    const token = typeof req.query.sessionToken === 'string' ? req.query.sessionToken : undefined;
+    const gameId = typeof req.params.gameId === 'string' ? req.params.gameId : undefined;
+    const playerName = bodyPlayerName ?? (token ? game.getPlayerNameFromToken(token, gameId) : undefined) ?? 'anonymous';
+    const endpoint = `${req.method} ${req.baseUrl}${req.path}`;
+    console.log(`🌐 HTTP endpoint=${endpoint} player=${playerName}`);
+    res.once('finish', () => {
+      console.log(`🌐 HTTP response endpoint=${endpoint} player=${playerName} status=${res.statusCode}`);
+    });
+    next();
+  });
+
   // Determine server version from env or package.json once at startup
   const SERVER_VERSION: string =
     process.env.VERSION ||
@@ -80,7 +97,7 @@ export function createApiRouter(game: GameManager): Router {
 
   // POST /api/v1/games - Create a private game
   router.post('/v1/games', (req, res) => {
-    const { playerName, clientUrl } = req.body;
+    const { playerName, playerCount, clientUrl } = req.body;
     const clientOrigin = typeof clientUrl === 'string' ? clientUrl : getClientBaseUrl(req);
     const forwardedProto = req.headers['x-forwarded-proto'];
     const protocol = typeof forwardedProto === 'string'
@@ -88,7 +105,7 @@ export function createApiRouter(game: GameManager): Router {
       : req.protocol;
     const serverOrigin = process.env.SERVER_URL || `${protocol}://${req.get('host')}`;
 
-    const result = game.createGame(playerName, clientOrigin, serverOrigin);
+    const result = game.createGame(playerName, clientOrigin, serverOrigin, playerCount ?? 2);
 
     if ('error' in result) {
       const statusCode = result.code === GameManager.ERROR_CODES.MAX_GAMES_REACHED ? HTTP_STATUS.SERVICE_UNAVAILABLE : HTTP_STATUS.BAD_REQUEST;
@@ -100,6 +117,28 @@ export function createApiRouter(game: GameManager): Router {
     }
 
     return res.status(HTTP_STATUS.CREATED).json(result);
+  });
+
+  router.post('/v1/games/:gameId/skip-waiting', (req, res) => {
+    const { gameId } = req.params;
+    const sessionToken = req.query.sessionToken as string | undefined;
+    if (!sessionToken) {
+      return res.status(HTTP_STATUS.UNAUTHORIZED).json({
+        code: GameManager.ERROR_CODES.MISSING_SESSION_TOKEN,
+        message: GameManager.ERROR_MESSAGES.MISSING_SESSION_TOKEN
+      });
+    }
+
+    const result = game.skipWaiting(gameId, sessionToken);
+    if ('error' in result) {
+      const statusCode = result.code === GameManager.ERROR_CODES.GAME_NOT_FOUND
+        ? HTTP_STATUS.NOT_FOUND
+        : result.code === GameManager.ERROR_CODES.INVALID_SESSION_TOKEN || result.code === GameManager.ERROR_CODES.NOT_CREATOR
+          ? HTTP_STATUS.UNAUTHORIZED
+          : HTTP_STATUS.BAD_REQUEST;
+      return res.status(statusCode).json({ code: result.code, message: result.error });
+    }
+    return res.status(HTTP_STATUS.OK).json(result);
   });
 
   router.post('/v1/hot-seat/games', (req, res) => {
@@ -162,6 +201,7 @@ export function createApiRouter(game: GameManager): Router {
   router.post('/v1/games/:gameId/rematch', (req, res) => {
     const { gameId } = req.params;
     const sessionToken = req.query.sessionToken as string | undefined;
+    const answer = req.body?.answer;
 
     if (!sessionToken) {
       const errorResponse: ErrorResponse = {
@@ -171,7 +211,7 @@ export function createApiRouter(game: GameManager): Router {
       return res.status(HTTP_STATUS.UNAUTHORIZED).json(errorResponse);
     }
 
-    const result = game.requestRematch(gameId, sessionToken);
+    const result = game.requestRematch(gameId, sessionToken, answer);
     if ('error' in result) {
       const errorResponse: ErrorResponse = {
         code: result.code,
@@ -181,16 +221,18 @@ export function createApiRouter(game: GameManager): Router {
     }
 
     return res.status(HTTP_STATUS.OK).json({
-      ready: result.ready,
+      answer: result.answer,
+      playersAnswered: result.playersAnswered,
       playersReady: result.playersReady,
-      requiredPlayers: 2,
+      requiredPlayers: result.requiredPlayers,
+      players: result.players,
       roundStarted: result.roundStarted
     });
   });
 
   // POST /api/v1/fire - Fire a projectile (updated for session tokens)
   router.post('/v1/fire', (req, res) => {
-    const { gameId, angle, velocity } = req.body;
+    const { gameId, angle, velocity, direction } = req.body;
     const sessionToken = req.query.sessionToken as string | undefined;
 
     // Validate required fields
@@ -212,7 +254,15 @@ export function createApiRouter(game: GameManager): Router {
     }
 
     // Call game manager to handle fire
-    const result = game.fire(gameId, sessionToken, angle, velocity);
+    if (direction !== undefined && direction !== 'Left' && direction !== 'Right') {
+      const errorResponse: ErrorResponse = {
+        code: GameManager.ERROR_CODES.INVALID_FIELD_TYPES,
+        message: 'direction must be Left or Right'
+      };
+      return res.status(HTTP_STATUS.BAD_REQUEST).json(errorResponse);
+    }
+
+    const result = game.fire(gameId, sessionToken, angle, velocity, direction);
 
     if ('error' in result) {
       const errorResponse: ErrorResponse = {

@@ -87,6 +87,67 @@ export interface paths {
                         "application/json": components["schemas"]["ErrorResponse"];
                     };
                 };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/games/{gameId}/skip-waiting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start with currently connected players
+         * @description Creator-only action that closes unfilled lobby slots and starts when at least two players are connected
+         */
+        post: {
+            parameters: {
+                query: {
+                    sessionToken: string;
+                };
+                header?: never;
+                path: {
+                    gameId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Waiting players skipped */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SkipWaitingResponse"];
+                    };
+                };
+                /** @description Skip is unavailable */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+                /** @description Invalid session token */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
                 /** @description Server at maximum capacity */
                 503: {
                     headers: {
@@ -422,8 +483,19 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @enum {integer} */
-        PlayerId: 0 | 1;
+        PlayerId: number;
+        LobbySlot: {
+            playerId: components["schemas"]["PlayerId"];
+            playerName?: string;
+            /** @enum {string} */
+            status: "waiting" | "ready" | "skipped";
+        };
+        PlayerState: {
+            playerId: components["schemas"]["PlayerId"];
+            playerName: string;
+            active: boolean;
+            connected: boolean;
+        };
         Position: {
             x: number;
             y: number;
@@ -461,6 +533,11 @@ export interface components {
             /** @description Display name for the initiating player (15 chars max, must start with alphanumeric) */
             playerName: string;
             /**
+             * @description Number of player slots to reserve in the lobby
+             * @default 2
+             */
+            playerCount: number;
+            /**
              * Format: uri
              * @description Current client URL used to preserve the deployed application path in the invite link
              */
@@ -478,6 +555,7 @@ export interface components {
             inviteUrl: string;
             /** @description Short 4-character alphanumeric code (easy to type) */
             inviteCode: string;
+            playerCount?: number;
         };
         CreateHotSeatRequest: {
             firstPlayerName: string;
@@ -503,6 +581,7 @@ export interface components {
             gameId: string;
             /** @description Session token for this player (high entropy, one-time) */
             playerToken: string;
+            playerId: components["schemas"]["PlayerId"];
         };
         GameStatusResponse: {
             /**
@@ -512,24 +591,36 @@ export interface components {
             status: "pending" | "active" | "finished" | "expired";
             /** @description Number of players currently connected via WebSocket */
             playersConnected: number;
-            /**
-             * @description Required number of players for the game to start
-             * @constant
-             */
-            requiredPlayers: 2;
+            /** @description Required number of players for the game to start */
+            requiredPlayers: number;
+            slots: components["schemas"]["LobbySlot"][];
+            /** @description Whether the authenticated creator can start with connected players */
+            canSkipWaiting: boolean;
             /** @description Whether the authenticated player has requested another round */
             rematchReady: boolean;
             /** @description Number of players who have requested another round */
             rematchPlayersReady: number;
         };
         RematchResponse: {
-            /** @description Whether the authenticated player is ready for another round */
-            ready: boolean;
-            playersReady: number;
-            /** @constant */
-            requiredPlayers: 2;
-            /** @description Whether both players were ready and a new round started */
+            /** @enum {string} */
+            answer: "play_again" | "had_enough" | "not_sure";
+            playersAnswered: number;
+            requiredPlayers: number;
+            /** @description Whether every player chose play_again and a new round started */
             roundStarted: boolean;
+            players: components["schemas"]["RematchPlayerStatus"][];
+        };
+        RematchPlayerStatus: {
+            playerId: components["schemas"]["PlayerId"];
+            playerName: string;
+            /** @enum {string} */
+            answer?: "play_again" | "had_enough" | "not_sure";
+        };
+        SkipWaitingResponse: {
+            started: boolean;
+            playersConnected: number;
+            requiredPlayers: number;
+            slots: components["schemas"]["LobbySlot"][];
         };
         FireRequest: {
             /** @description Opaque game ID */
@@ -538,6 +629,12 @@ export interface components {
             angle: number;
             /** @description Projectile velocity */
             velocity: number;
+            /**
+             * @description Horizontal firing direction for castles that are not at a battlefield edge
+             * @default Left
+             * @enum {string}
+             */
+            direction: "Left" | "Right";
         };
         ErrorResponse: {
             /** @description Machine-readable error code */
@@ -577,8 +674,7 @@ export interface components {
             type: "game_start";
             /** @description Opaque game ID */
             gameId: string;
-            /** @description Display name of the opponent */
-            opponentName: string;
+            players: components["schemas"]["PlayerState"][];
             battlefield: components["schemas"]["Battlefield"];
             round: number;
         };
@@ -591,6 +687,8 @@ export interface components {
             playerId: components["schemas"]["PlayerId"];
             angle: number;
             velocity: number;
+            /** @enum {string} */
+            direction: "Left" | "Right";
         };
         TurnChangeMessage: {
             /**
@@ -599,6 +697,7 @@ export interface components {
              */
             type: "turn_change";
             playerId_turn: components["schemas"]["PlayerId"];
+            players: components["schemas"]["PlayerState"][];
         };
         GameOverMessage: {
             /**
@@ -607,6 +706,7 @@ export interface components {
              */
             type: "game_over";
             playerId_winner: components["schemas"]["PlayerId"];
+            players: components["schemas"]["PlayerState"][];
         };
         RematchStatusMessage: {
             /**
@@ -614,9 +714,9 @@ export interface components {
              * @enum {string}
              */
             type: "rematch_status";
-            playersReady: number;
-            /** @constant */
-            requiredPlayers: 2;
+            playersAnswered: number;
+            requiredPlayers: number;
+            players: components["schemas"]["RematchPlayerStatus"][];
         };
         WebSocketErrorMessage: {
             /**

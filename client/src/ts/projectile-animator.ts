@@ -43,12 +43,16 @@ export class ProjectileAnimator {
   /**
    * Start a new projectile animation
    */
-  public fire(angle: number, velocity: number, startX: number, playerId: number): void {
+  public fire(angle: number, velocity: number, startX: number, playerId: number, direction?: 'Left' | 'Right'): void {
     // Stop any existing animation
     this.stop();
 
-    // For Player 1 (right side), flip the angle so they aim toward the left
-    const adjustedAngle = playerId === 1 ? (180 - angle) : angle;
+    const labelPosition = typeof this.renderer.getCastleLabelPosition === 'function'
+      ? this.renderer.getCastleLabelPosition(playerId)
+      : { x: startX, y: 0 };
+    const adjustedAngle = direction
+      ? direction === 'Left' ? 180 - angle : angle
+      : labelPosition.x < this.canvasWidth / 2 ? angle : 180 - angle;
 
     // Calculate initial velocity components
     const { vx, vy } = Physics.calculateVelocityComponents(adjustedAngle, velocity);
@@ -56,7 +60,7 @@ export class ProjectileAnimator {
     // Initialize projectile at castle position
     this.currentProjectile = {
       x: startX,
-      y: this.renderer.getCastleTopY(playerId === 0 ? 0 : 1),
+      y: this.renderer.getCastleTopY(playerId),
       vx,
       vy
     };

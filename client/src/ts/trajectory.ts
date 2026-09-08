@@ -19,12 +19,16 @@ const HISTORICAL_OPACITIES = [0.4, 0.35, 0.3, 0.25] as const;
 export function calculateShotTrajectory(
   battlefield: BattlefieldConfig,
   shot: ShotHistoryEntry,
-  playerId: 0 | 1
+  playerId: number
 ): TrajectoryPoint[] {
   const castle = battlefield.castles.find((item) => item.playerId === playerId);
   if (!castle) return [];
 
-  const adjustedAngle = playerId === 1 ? 180 - shot.angle : shot.angle;
+  const adjustedAngle = shot.direction
+    ? shot.direction === 'Left' ? 180 - shot.angle : shot.angle
+    : castle.left_x + battlefield.castleWidth / 2 < battlefield.canvasWidth / 2
+      ? shot.angle
+      : 180 - shot.angle;
   const velocity = Physics.calculateVelocityComponents(adjustedAngle, shot.velocity);
   let projectile: Projectile = {
     x: castle.left_x + battlefield.castleWidth / 2,
@@ -58,7 +62,7 @@ export function calculateShotTrajectory(
 export function createHistoricalTrajectories(
   battlefield: BattlefieldConfig,
   history: ShotHistoryEntry[],
-  playerId: 0 | 1
+  playerId: number
 ): HistoricalTrajectory[] {
   return history.map((shot, index) => ({
     points: calculateShotTrajectory(battlefield, shot, shot.playerId ?? playerId),

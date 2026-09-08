@@ -12,7 +12,8 @@ import type {
   CreateGameResponse,
   AcceptInvitationResponse,
   CreateHotSeatResponse,
-  GameStatusResponse
+  GameStatusResponse,
+  LobbySlotStatus
 } from '../types/private-game';
 import { TokenService } from './tokenService';
 import { InMemoryGameRepository, type GameRepository } from './gameRepository';
@@ -26,6 +27,7 @@ import { GAME_ERROR_CODES, GAME_ERROR_MESSAGES } from './gameErrors';
 import { InvitationService } from './invitationService';
 import { GameRules } from './gameRules';
 import { HTTP_STATUS } from '../httpStatus';
+import { getDefaultShotDirection } from '../utils/shotResolver';
 
 // Fallback used only when a request has no Origin/Referer header (e.g. direct API calls/tests)
 const DEFAULT_CLIENT_ORIGIN = process.env.CLIENT_URL || 'http://localhost:5173';
@@ -92,7 +94,7 @@ export class GameManager {
    * @param playerName The initiator's display name
   * @returns Game creation response with an invite code
    */
-  public createGame(playerName: string, clientOrigin: string = DEFAULT_CLIENT_ORIGIN, serverOrigin: string = DEFAULT_SERVER_ORIGIN): CreateGameResponse | { error: string; code: string } {
+  public createGame(playerName: string, clientOrigin: string = DEFAULT_CLIENT_ORIGIN, serverOrigin: string = DEFAULT_SERVER_ORIGIN, playerCount: number = 2): CreateGameResponse | { error: string; code: string } {
     const normalizedName = TokenService.normalizeName(playerName);
     if (!normalizedName) {
       return {
@@ -109,7 +111,7 @@ export class GameManager {
       };
     }
 
-    return this.invitationService.createGame(playerName, clientOrigin, serverOrigin);
+    return this.invitationService.createGame(playerName, clientOrigin, serverOrigin, Date.now(), playerCount);
   }
 
   /**
@@ -156,6 +158,8 @@ export class GameManager {
       expiresAt: now + GAME_CONFIG.invitationTtlMs,
       lastActivityAt: now,
       hotSeat: true,
+      playerCount: 2,
+      lobbySlots: [],
       invitation: {
         inviteCode: '',
         inviteCodeHash: '',
@@ -177,6 +181,10 @@ export class GameManager {
       round: 1,
       rematchReady: [false, false]
     };
+    game.lobbySlots = [
+      { playerId: 0, session: game.initiator, status: 'waiting', active: true, eliminated: false },
+      { playerId: 1, session: game.invited, status: 'waiting', active: true, eliminated: false }
+    ];
     this.games.set(game);
 
     return {
@@ -207,7 +215,7 @@ export class GameManager {
     }
 
     // Verify session token belongs to this game
-    const playerId = this.getPlayerIdFromToken(gameId, sessionToken);
+    const playerId = this.getLobbyPlayerIdFromToken(gameId, sessionToken);
     if (playerId === null) {
       return {
         error: GameManager.ERROR_MESSAGES.INVALID_SESSION_TOKEN,
@@ -217,17 +225,36 @@ export class GameManager {
 
     const playersConnected = game.hotSeat
       ? (game.initiator.websocket?.readyState === WebSocket.OPEN ? 2 : 0)
-      : [game.initiator.websocket, game.invited.websocket].filter(
-        ws => ws !== null && ws.readyState === WebSocket.OPEN
-      ).length;
+      : game.lobbySlots.filter(slot => slot.session.websocket?.readyState === WebSocket.OPEN).length;
 
     return {
       status: game.status,
       playersConnected,
-      requiredPlayers: 2,
-      rematchReady: game.rematchReady[playerId],
-      rematchPlayersReady: game.rematchReady.filter(Boolean).length
+      requiredPlayers: this.getRequiredPlayers(game),
+      rematchReady: playerId < 2 ? game.rematchReady[playerId] : false,
+      rematchPlayersReady: game.rematchReady.filter(Boolean).length,
+      slots: (game.lobbySlots.length ? game.lobbySlots : [game.initiator, game.invited].map((session, playerId) => ({ playerId, session, status: 'waiting' as const, active: true, eliminated: false }))).map(slot => ({
+        playerId: slot.playerId,
+        ...(slot.session.name ? { playerName: slot.session.name } : {}),
+        status: this.getLobbySlotStatus(game, slot.playerId)
+      })),
+      canSkipWaiting: playerId === 0 && game.status === 'pending' && playersConnected >= 2
     };
+  }
+
+  private getLobbySlotStatus(game: PrivateGame, playerId: number): LobbySlotStatus {
+    const slot = (game.lobbySlots.length ? game.lobbySlots : [game.initiator, game.invited].map((session, index) => ({ playerId: index, session, status: 'waiting' as const, active: true, eliminated: false })))[playerId];
+    if (!slot) return 'skipped';
+    if (slot.status === 'skipped') return 'skipped';
+    return slot.session.websocket?.readyState === WebSocket.OPEN && slot.session.name
+      ? 'ready'
+      : 'waiting';
+  }
+
+  private getRequiredPlayers(game: PrivateGame): number {
+    return game.waitingSkipped
+      ? game.lobbySlots.filter(slot => slot.status !== 'skipped').length
+      : game.playerCount ?? 2;
   }
 
   /**
@@ -241,7 +268,7 @@ export class GameManager {
     gameId: string,
     sessionToken: string,
     ws: WebSocket
-  ): { playerId: 0 | 1 } | { error: string; code: string } {
+  ): { playerId: number } | { error: string; code: string } {
     const game = this.games.get(gameId);
     if (!game) {
       return {
@@ -251,7 +278,7 @@ export class GameManager {
     }
 
     // Determine which player this is by validating session token
-    const playerId = this.getPlayerIdFromToken(game.id, sessionToken);
+    const playerId = this.getLobbyPlayerIdFromToken(game.id, sessionToken);
 
     if (playerId == null) {
       return {
@@ -261,18 +288,21 @@ export class GameManager {
     }
 
     // Store WebSocket connection
-    if (playerId === 0) {
+    const slot = game.lobbySlots[playerId];
+    if (!slot) {
+      return { error: GameManager.ERROR_MESSAGES.INVALID_SESSION_TOKEN, code: GameManager.ERROR_CODES.INVALID_SESSION_TOKEN };
+    }
+    slot.session.websocket = ws;
+    slot.status = 'ready';
+    if (playerId === 0) game.initiator.websocket = ws;
+    if (playerId === 1) game.invited.websocket = ws;
+
+    if (game.hotSeat && playerId < 2) {
       game.initiator.websocket = ws;
-    } else {
       game.invited.websocket = ws;
     }
 
-    if (game.hotSeat) {
-      game.initiator.websocket = ws;
-      game.invited.websocket = ws;
-    }
-
-    console.log(`✅ Player ${playerId} (${playerId == 0 ? game.initiator.name : game.invited.name}) connected to game ${gameId}`);
+    console.log(`✅ Player ${playerId} (${slot.session.name ?? `Player ${playerId + 1}`}) connected to game ${gameId}`);
 
     // Try to start game if both players are connected
     if (!game.gameStarted) {
@@ -301,26 +331,102 @@ export class GameManager {
     return null;
   }
 
+  public getPlayerNameFromToken(sessionToken: string, gameId?: string): string | null {
+    if (gameId) {
+      const game = this.games.get(gameId);
+      if (!game) return null;
+      const slot = game.lobbySlots.find(candidate => TokenService.verifyToken(sessionToken, candidate.session.sessionTokenHash));
+      return slot?.session.name ?? null;
+    }
+
+    for (const game of this.games.values()) {
+      const slot = game.lobbySlots.find(candidate => TokenService.verifyToken(sessionToken, candidate.session.sessionTokenHash));
+      if (slot?.session.name) return slot.session.name;
+    }
+    return null;
+  }
+
+  public getPlayerName(gameId: string, playerId: number): string | null {
+    const game = this.games.get(gameId);
+    return game?.lobbySlots[playerId]?.session.name ?? null;
+  }
+
+  private getLobbyPlayerIdFromToken(gameId: string, sessionToken: string): number | null {
+    const game = this.games.get(gameId);
+    if (!game) return null;
+    const slots = game.lobbySlots.length
+      ? game.lobbySlots
+      : [game.initiator, game.invited].map((session, playerId) => ({ playerId, session, status: 'waiting' as const }));
+    const slot = slots.find(candidate => TokenService.verifyToken(sessionToken, candidate.session.sessionTokenHash));
+    return slot?.playerId ?? null;
+  }
+
+  public skipWaiting(
+    gameId: string,
+    sessionToken: string
+  ): import('../types/private-game').SkipWaitingResponse | { error: string; code: string } {
+    const game = this.games.get(gameId);
+    if (!game) {
+      return { error: GameManager.ERROR_MESSAGES.GAME_NOT_FOUND, code: GameManager.ERROR_CODES.GAME_NOT_FOUND };
+    }
+
+    const playerId = this.getLobbyPlayerIdFromToken(gameId, sessionToken);
+    if (playerId === null) {
+      return { error: GameManager.ERROR_MESSAGES.INVALID_SESSION_TOKEN, code: GameManager.ERROR_CODES.INVALID_SESSION_TOKEN };
+    }
+    if (playerId !== 0) {
+      return { error: GameManager.ERROR_MESSAGES.NOT_CREATOR, code: GameManager.ERROR_CODES.NOT_CREATOR };
+    }
+    if (game.status !== 'pending' || game.waitingSkipped) {
+      return { error: GameManager.ERROR_MESSAGES.LOBBY_CLOSED, code: GameManager.ERROR_CODES.LOBBY_CLOSED };
+    }
+
+    const connectedSlots = game.lobbySlots.filter(slot =>
+      slot.session.name && slot.session.websocket?.readyState === WebSocket.OPEN
+    );
+    if (connectedSlots.length < 2) {
+      return { error: GameManager.ERROR_MESSAGES.NOT_ENOUGH_PLAYERS, code: GameManager.ERROR_CODES.NOT_ENOUGH_PLAYERS };
+    }
+
+    game.waitingSkipped = true;
+    game.lobbySlots.forEach(slot => {
+      if (!connectedSlots.includes(slot)) slot.status = 'skipped';
+    });
+
+    this.tryStartGame(game);
+
+    return {
+      started: game.gameStarted,
+      playersConnected: connectedSlots.length,
+      requiredPlayers: this.getRequiredPlayers(game),
+      slots: game.lobbySlots.map(slot => ({
+        playerId: slot.playerId,
+        ...(slot.session.name ? { playerName: slot.session.name } : {}),
+        status: slot.status
+      }))
+    };
+  }
+
   /**
    * Handle player disconnect
    */
-  public disconnectPlayer(gameId: string, playerId: 0 | 1, ws: WebSocket): void {
+  public disconnectPlayer(gameId: string, playerId: number, ws: WebSocket): void {
     const game = this.games.get(gameId);
     if (!game) return;
 
-    const currentSocket = playerId === 0
-      ? game.initiator.websocket
-      : game.invited.websocket;
+    const currentSocket = game.lobbySlots[playerId]?.session.websocket;
     if (currentSocket !== ws) return;
 
     if (game.hotSeat) {
       game.initiator.websocket = null;
       game.invited.websocket = null;
-      this.gameRules.disconnect(game, playerId);
+      if (playerId < 2) this.gameRules.disconnect(game, playerId as 0 | 1);
       return;
     }
 
-    this.gameRules.disconnect(game, playerId);
+    game.lobbySlots[playerId].session.websocket = null;
+    if (game.status === 'pending') game.lobbySlots[playerId].status = 'waiting';
+    if (playerId < 2) this.gameRules.disconnect(game, playerId as 0 | 1);
   }
 
   /**
@@ -333,7 +439,7 @@ export class GameManager {
     }
 
     console.log(
-      `🎮 Game ${game.id} started: ${game.initiator.name} vs ${game.invited.name}`
+      `🎮 Game ${game.id} started: ${game.lobbySlots.filter(slot => slot.active).map(slot => slot.session.name).join(' vs ')}`
     );
 
     this.broadcastGameStart(game, start.battlefield);
@@ -341,57 +447,49 @@ export class GameManager {
     // Send initial turn change
     const turnMessage: TurnChangeMessage = {
       type: 'turn_change',
-      playerId_turn: 0
+      playerId_turn: game.currentTurn,
+      players: this.getPlayerStates(game)
     };
     this.broadcastToGame(game, turnMessage);
   }
 
   private broadcastGameStart(game: PrivateGame, battlefield: NonNullable<PrivateGame['battlefield']>): void {
-    if (game.hotSeat) {
-      const ws = game.initiator.websocket;
-      const startMessage: GameStartMessage = {
-        type: 'game_start',
-        gameId: game.id,
-        opponentName: game.invited.name ?? 'Player 2',
-        battlefield,
-        round: game.round
-      };
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(startMessage));
-      }
-      return;
-    }
+    const players = this.getPlayerStates(game);
+    const startMessage: GameStartMessage = {
+      type: 'game_start',
+      gameId: game.id,
+      players,
+      battlefield,
+      round: game.round
+    };
+    this.broadcastToGame(game, startMessage);
+  }
 
-    // Send game_start to both players
-    for (let playerId = 0; playerId < 2; playerId++) {
-      const ws = playerId === 0 ? game.initiator.websocket : game.invited.websocket;
-      const opponentName =
-        playerId === 0
-          ? (game.invited.name ?? 'Opponent')
-          : (game.initiator.name ?? 'Opponent');
-
-      const startMessage: GameStartMessage = {
-        type: 'game_start',
-        gameId: game.id,
-        opponentName,
-        battlefield,
-        round: game.round
-      };
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(startMessage));
-      }
-    }
-
+  private getPlayerStates(game: PrivateGame): Array<{
+    playerId: number;
+    playerName: string;
+    active: boolean;
+    connected: boolean;
+  }> {
+    return game.lobbySlots.map(slot => ({
+      playerId: slot.playerId,
+      playerName: slot.session.name ?? `Player ${slot.playerId + 1}`,
+      active: slot.active && !slot.eliminated && slot.status !== 'skipped',
+      connected: slot.session.websocket?.readyState === WebSocket.OPEN
+    }));
   }
 
   public requestRematch(
     gameId: string,
-    sessionToken: string
+    sessionToken: string,
+    answer: import('../types/private-game').RematchAnswer = 'play_again'
   ): {
     success: true;
-    ready: boolean;
+    answer: import('../types/private-game').RematchAnswer;
+    playersAnswered: number;
     playersReady: number;
+    requiredPlayers: number;
+    players: Array<{ playerId: number; playerName: string; answer?: import('../types/private-game').RematchAnswer }>;
     roundStarted: boolean;
   } | { success: false; error: string; code: string; statusCode: number } {
     const game = this.games.get(gameId);
@@ -404,7 +502,7 @@ export class GameManager {
       };
     }
 
-    const playerId = this.getPlayerIdFromToken(gameId, sessionToken);
+    const playerId = this.getLobbyPlayerIdFromToken(gameId, sessionToken);
     if (playerId === null) {
       return {
         success: false,
@@ -423,23 +521,45 @@ export class GameManager {
       };
     }
 
-    const transition = this.gameRules.requestRematch(game, playerId);
+    if (answer !== 'play_again' && answer !== 'had_enough') {
+      return {
+        success: false,
+        error: 'Answer must be play_again or had_enough',
+        code: 'INVALID_REMATCH_ANSWER',
+        statusCode: HTTP_STATUS.BAD_REQUEST
+      };
+    }
+
+    const transition = this.gameRules.requestRematch(game, playerId, answer);
+    const answers = transition.answers ?? game.rematchAnswers ?? [];
     const statusMessage: RematchStatusMessage = {
       type: 'rematch_status',
-      playersReady: transition.playersReady,
-      requiredPlayers: 2
+      playersAnswered: transition.playersAnswered,
+      requiredPlayers: game.lobbySlots.length,
+      players: game.lobbySlots.map(slot => ({
+        playerId: slot.playerId,
+        playerName: slot.session.name ?? `Player ${slot.playerId + 1}`,
+        ...(answers[slot.playerId] ? { answer: answers[slot.playerId]! } : {})
+      }))
     };
     this.broadcastToGame(game, statusMessage);
 
     if (transition.kind === 'started') {
       this.broadcastGameStart(game, transition.battlefield);
-      this.broadcastToGame(game, { type: 'turn_change', playerId_turn: 0 });
+      this.broadcastToGame(game, {
+        type: 'turn_change',
+        playerId_turn: game.currentTurn,
+        players: this.getPlayerStates(game)
+      });
     }
 
     return {
       success: true,
-      ready: transition.kind === 'waiting' ? game.rematchReady[playerId] : true,
+      answer,
+      playersAnswered: transition.playersAnswered,
       playersReady: transition.playersReady,
+      requiredPlayers: game.lobbySlots.length,
+      players: statusMessage.players,
       roundStarted: transition.kind === 'started'
     };
   }
@@ -456,7 +576,8 @@ export class GameManager {
     gameId: string,
     sessionToken: string,
     angle: number,
-    velocity: number
+    velocity: number,
+    direction?: 'Left' | 'Right'
   ): { success: true } | { success: false; error: string; code: string; statusCode: number } {
     const game = this.games.get(gameId);
     if (!game) {
@@ -469,7 +590,7 @@ export class GameManager {
     }
 
     // Derive player ID from session token
-    const playerId = this.getPlayerIdFromToken(gameId, sessionToken);
+    const playerId = this.getLobbyPlayerIdFromToken(gameId, sessionToken);
     if (playerId === null) {
       return {
         success: false,
@@ -517,31 +638,41 @@ export class GameManager {
       };
     }
 
-    const transition = this.gameRules.fire(game, playerId, angle, velocity);
+    const transition = this.gameRules.fire(game, playerId, angle, velocity, direction);
 
     // Broadcast shot
     const shotMessage: ShotMessage = {
       type: 'shot',
       playerId,
       angle,
-      velocity
+      velocity,
+      direction: direction ?? getDefaultShotDirection(game.battlefield!, playerId)
     };
     this.broadcastToGame(game, shotMessage);
 
     if (transition.kind === 'hit') {
-      // Hit! Game over
-      const gameOverMessage: GameOverMessage = {
-        type: 'game_over',
-        playerId_winner: playerId
-      };
-      this.broadcastToGame(game, gameOverMessage);
+      if (transition.winnerPlayerId !== undefined) {
+        const gameOverMessage: GameOverMessage = {
+          type: 'game_over',
+          playerId_winner: transition.winnerPlayerId,
+          players: this.getPlayerStates(game)
+        };
+        this.broadcastToGame(game, gameOverMessage);
+      } else {
+        this.broadcastToGame(game, {
+          type: 'turn_change',
+          playerId_turn: game.currentTurn,
+          players: this.getPlayerStates(game)
+        });
+      }
       return { success: true };
     }
 
     // Miss - switch turns
     const turnMessage: TurnChangeMessage = {
       type: 'turn_change',
-      playerId_turn: transition.nextPlayerId
+      playerId_turn: transition.nextPlayerId,
+      players: this.getPlayerStates(game)
     };
     this.broadcastToGame(game, turnMessage);
 
@@ -555,12 +686,19 @@ export class GameManager {
     const messageStr = JSON.stringify(message);
 
     const sockets = new Set<WebSocket>();
-    [game.initiator, game.invited].forEach((player) => {
-      if (player.websocket && player.websocket.readyState === WebSocket.OPEN) {
-        sockets.add(player.websocket);
+    game.lobbySlots.forEach((slot) => {
+      if (slot.session.websocket && slot.session.websocket.readyState === WebSocket.OPEN) {
+        sockets.add(slot.session.websocket);
       }
     });
-    sockets.forEach((socket) => socket.send(messageStr));
+    sockets.forEach((socket) => {
+      const recipientNames = game.lobbySlots
+        .filter(slot => slot.session.websocket === socket)
+        .map(slot => slot.session.name ?? `Player ${slot.playerId + 1}`)
+        .join(', ');
+      console.log(`📤 WebSocket message type=${message.type} game=${game.id} to=${recipientNames || 'unknown'} payload=${messageStr}`);
+      socket.send(messageStr);
+    });
   }
 
   /**
@@ -573,7 +711,7 @@ export class GameManager {
   } {
     let invitationCount = 0;
     for (const game of this.games.values()) {
-      if (game.status === 'pending' && !game.invitation.accepted) {
+      if (game.status === 'pending' && !game.waitingSkipped && (!game.invitation.accepted || game.playerCount > 2)) {
         invitationCount++;
       }
     }

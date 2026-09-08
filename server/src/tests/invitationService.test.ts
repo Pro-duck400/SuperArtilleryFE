@@ -25,6 +25,9 @@ describe('InvitationService', () => {
 
     const accepted = service.acceptInvitation(created.inviteCode.toLowerCase(), 'Bob');
     expect('error' in accepted).toBe(false);
+    if (!('error' in accepted)) {
+      expect(accepted.playerId).toBe(1);
+    }
 
     const reused = service.acceptInvitation(created.inviteCode, 'Carol');
     expect(reused).toEqual({

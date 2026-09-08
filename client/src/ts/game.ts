@@ -1,11 +1,13 @@
 // Game state and turn management
 import type { GameState } from './types/game';
 import type { BattlefieldConfig } from './types/messages';
+import type { PlayerState } from './types/messages';
 
 export interface ShotHistoryEntry {
   angle: number;
   velocity: number;
-  playerId?: 0 | 1;
+  playerId?: number;
+  direction?: 'Left' | 'Right';
 }
 
 export class Game {
@@ -20,13 +22,14 @@ export class Game {
   private opponentName: string | null = null;
   private hotSeat = false;
   private shotHistory: ShotHistoryEntry[] = [];
-  private shotHistoryByPlayer: [ShotHistoryEntry[], ShotHistoryEntry[]] = [[], []];
+  private shotHistoryByPlayer = new Map<number, ShotHistoryEntry[]>();
+  private players = new Map<number, PlayerState>();
 
   public getState(): GameState {
     return { ...this.state };
   }
 
-  public setPlayer(id: 0 | 1, playerName: string): void {
+  public setPlayer(id: number, playerName: string): void {
     this.state.playerId = id;
     this.playerName = playerName;
     this.updateTurnState();
@@ -57,11 +60,11 @@ export class Game {
     return this.battlefield;
   }
 
-  public getPlayerId(): 0 | 1 | null {
+  public getPlayerId(): number | null {
     return this.state.playerId;
   }
 
-  public setCurrentTurn(turn: 0 | 1): void {
+  public setCurrentTurn(turn: number): void {
     this.state.currentTurn = turn;
     this.updateTurnState();
   }
@@ -82,11 +85,17 @@ export class Game {
     return this.opponentName;
   }
 
-  public addShotToHistory(angle: number, velocity: number, playerId?: 0 | 1): void {
-    const shot = { angle, velocity, ...(playerId === undefined ? {} : { playerId }) };
+  public addShotToHistory(angle: number, velocity: number, playerId?: number, direction?: 'Left' | 'Right'): void {
+    const shot = {
+      angle,
+      velocity,
+      ...(playerId === undefined ? {} : { playerId }),
+      ...(direction ? { direction } : {})
+    };
     this.shotHistory = [shot, ...this.shotHistory].slice(0, 4);
     if (playerId !== undefined) {
-      this.shotHistoryByPlayer[playerId] = [shot, ...this.shotHistoryByPlayer[playerId]].slice(0, 4);
+      const history = this.shotHistoryByPlayer.get(playerId) ?? [];
+      this.shotHistoryByPlayer.set(playerId, [shot, ...history].slice(0, 4));
     }
   }
 
@@ -94,13 +103,23 @@ export class Game {
     return this.shotHistory.map((shot) => ({ ...shot }));
   }
 
-  public getShotHistoryForPlayer(playerId: 0 | 1): ShotHistoryEntry[] {
-    return this.shotHistoryByPlayer[playerId].map((shot) => ({ ...shot }));
+  public getShotHistoryForPlayer(playerId: number): ShotHistoryEntry[] {
+    return (this.shotHistoryByPlayer.get(playerId) ?? []).map((shot) => ({ ...shot }));
+  }
+
+  public setPlayers(players: PlayerState[]): void {
+    this.players = new Map(players.map(player => [player.playerId, { ...player }]));
+    const localPlayer = this.state.playerId === null ? undefined : this.players.get(this.state.playerId);
+    if (localPlayer) this.playerName = localPlayer.playerName;
+  }
+
+  public getPlayers(): PlayerState[] {
+    return Array.from(this.players.values()).map(player => ({ ...player }));
   }
 
   public resetShotHistory(): void {
     this.shotHistory = [];
-    this.shotHistoryByPlayer = [[], []];
+    this.shotHistoryByPlayer.clear();
   }
 }
 

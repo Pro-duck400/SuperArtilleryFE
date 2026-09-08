@@ -1,7 +1,9 @@
 // Player-related types
 
 export interface Player {
-  id: 0 | 1;
+  id: number;
   name: string;
   castleX: number;
+  active?: boolean;
+  connected?: boolean;
 }

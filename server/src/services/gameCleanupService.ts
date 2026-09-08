@@ -75,12 +75,9 @@ export class GameCleanupService {
       const game = this.games.get(gameId);
       if (!game) return;
 
-      if (game.initiator.websocket) {
-        game.initiator.websocket.close();
-      }
-      if (game.invited.websocket) {
-        game.invited.websocket.close();
-      }
+      const sessions = game.lobbySlots?.map(slot => slot.session) ?? [game.initiator, game.invited];
+      const sockets = new Set(sessions.map(session => session.websocket).filter(Boolean));
+      sockets.forEach(socket => socket?.close());
       this.games.delete(gameId);
     });
   }

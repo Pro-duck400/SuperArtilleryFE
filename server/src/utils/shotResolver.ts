@@ -4,30 +4,30 @@ import { calculateVelocityComponents, checkCastleCollision, checkTerrainCollisio
 
 export function calculateCastleHitTime(
   battlefield: Battlefield,
-  playerId: 0 | 1,
+  playerId: number,
   angle: number,
-  velocity: number
+  velocity: number,
+  direction?: 'Left' | 'Right'
 ): number | null {
-  const targetPlayerId = playerId === 0 ? 1 : 0;
-  const targetCastle = battlefield.castles[targetPlayerId];
-  const firingCastle = battlefield.castles[playerId];
-  const adjustedAngle = playerId === 1 ? 180 - angle : angle;
+  const hit = calculateCastleHit(battlefield, playerId, angle, velocity, direction);
+  return hit?.hitTime ?? null;
+}
+
+export function calculateCastleHit(
+  battlefield: Battlefield,
+  playerId: number,
+  angle: number,
+  velocity: number,
+  direction?: 'Left' | 'Right'
+): { playerId: number; hitTime: number } | null {
+  const firingCastle = battlefield.castles.find(castle => castle.playerId === playerId);
+  if (!firingCastle) return null;
+  const resolvedDirection = direction ?? getDefaultShotDirection(battlefield, playerId);
+  const isLeft = resolvedDirection === 'Left';
+  const adjustedAngle = isLeft ? 180 - angle : angle;
   const { vx, vy } = calculateVelocityComponents(adjustedAngle, velocity);
   const x0 = firingCastle.left_x + battlefield.castleWidth / 2;
   const y0 = firingCastle.base_y - battlefield.castleHeight;
-
-  const castleHitTime = checkCastleCollision(
-    x0,
-    y0,
-    vx,
-    vy,
-    battlefield.gravity,
-    battlefield.wind,
-    targetCastle.left_x + battlefield.castleWidth / 2,
-    battlefield.castleWidth,
-    battlefield.castleHeight,
-    targetCastle.base_y
-  );
   const terrainHitTime = checkTerrainCollision(
     x0,
     y0,
@@ -39,7 +39,35 @@ export function calculateCastleHitTime(
     battlefield.canvasWidth
   );
 
-  if (castleHitTime === null) return null;
-  if (terrainHitTime !== null && terrainHitTime < castleHitTime) return null;
-  return castleHitTime;
+  const hits = battlefield.castles
+    .filter(castle => castle.playerId !== playerId)
+    .map(castle => ({
+      playerId: castle.playerId,
+      hitTime: checkCastleCollision(
+        x0,
+        y0,
+        vx,
+        vy,
+        battlefield.gravity,
+        battlefield.wind,
+        castle.left_x + battlefield.castleWidth / 2,
+        battlefield.castleWidth,
+        battlefield.castleHeight,
+        castle.base_y
+      )
+    }))
+    .filter((hit): hit is { playerId: number; hitTime: number } => hit.hitTime !== null)
+    .sort((left, right) => left.hitTime - right.hitTime || left.playerId - right.playerId);
+
+  const firstHit = hits[0];
+  if (!firstHit) return null;
+  if (terrainHitTime !== null && terrainHitTime < firstHit.hitTime) return null;
+  return firstHit;
+}
+
+export function getDefaultShotDirection(battlefield: Battlefield, playerId: number): 'Left' | 'Right' {
+  const castle = battlefield.castles.find(item => item.playerId === playerId);
+  return castle && castle.left_x + battlefield.castleWidth / 2 < battlefield.canvasWidth / 2
+    ? 'Right'
+    : 'Left';
 }

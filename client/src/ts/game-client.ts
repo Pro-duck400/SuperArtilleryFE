@@ -1,7 +1,7 @@
 // Coordinates network communication (HTTP + WebSocket)
 import { Game } from './game';
 import { WebSocketClient } from './network/websocket';
-import { ApiClient, type CreateGameResponse, type AcceptInvitationResponse, type CreateHotSeatResponse } from './network/api';
+import { ApiClient, type CreateGameResponse, type AcceptInvitationResponse, type CreateHotSeatResponse, type GameStatusResponse } from './network/api';
 import type {
   BattlefieldConfig,
   GameMessage,
@@ -13,6 +13,7 @@ export interface ShotEventData {
   playerId: number;
   angle: number;
   velocity: number;
+  direction: 'Left' | 'Right';
 }
 
 /**
@@ -38,7 +39,9 @@ export class GameClient {
   private onTurnChangeCallback: ((playerId: number, isMyTurn: boolean) => void) | null = null;
   private onGameStartCallback: ((gameId: string, battlefield: BattlefieldConfig) => void) | null = null;
   private onGameOverCallback: ((winnerId: number, didIWin: boolean) => void) | null = null;
-  private onRematchStatusCallback: ((playersReady: number) => void) | null = null;
+  private onPlayerHitCallback: ((playerId: number, playerName: string) => void) | null = null;
+  private onRematchStatusCallback: ((playersAnswered: number, requiredPlayers: number, players: Array<{ playerId: number; playerName: string; answer?: 'play_again' | 'had_enough' | 'not_sure' }>) => void) | null = null;
+  private onLobbyStatusCallback: ((status: GameStatusResponse) => void) | null = null;
 
   constructor(apiBaseUrl: string, wsBaseUrl: string, game: Game) {
     this.game = game;
@@ -52,7 +55,7 @@ export class GameClient {
   /**
    * Create a new private game
    */
-  public async createGame(playerName: string): Promise<CreateGameResponse> {
+  public async createGame(playerName: string, playerCount: number = 2): Promise<CreateGameResponse> {
     try {
       // Wake server with health check
       await this.apiClient.healthCheckWithRetry();
@@ -64,7 +67,9 @@ export class GameClient {
     }
 
     // Create the game
-    const response = await this.apiClient.createGame(playerName, window.location.href);
+    const response = playerCount === 2
+      ? await this.apiClient.createGame(playerName, window.location.href)
+      : await this.apiClient.createGame(playerName, window.location.href, playerCount);
     
     // Store session
     this.gameSession = {
@@ -112,7 +117,7 @@ export class GameClient {
 
     // Set up game state
     this.game.setGameId(response.gameId);
-    this.game.setPlayer(1, playerName); // Invited player is always player 1
+    this.game.setPlayer(response.playerId, playerName);
 
     console.log(`✅ Invitation accepted: ${response.gameId}`);
     return response;
@@ -196,6 +201,8 @@ export class GameClient {
             this.gameSession!.sessionToken
           );
 
+          this.onLobbyStatusCallback?.(status);
+
           console.log(`Game status: ${status.playersConnected}/${status.requiredPlayers} connected`);
 
           if (status.status === 'expired') {
@@ -239,7 +246,7 @@ export class GameClient {
   /**
    * Fire a shot
    */
-  public async fire(angle: number, velocity: number): Promise<void> {
+  public async fire(angle: number, velocity: number, direction?: 'Left' | 'Right'): Promise<void> {
     if (!this.gameSession) {
       throw new Error('No active game session');
     }
@@ -254,22 +261,28 @@ export class GameClient {
       this.gameSession.gameId,
       sessionToken,
       angle,
-      velocity
+      velocity,
+      direction
     );
     // Server will send WebSocket messages (shot + turn_change) to update state
   }
 
-  public async requestRematch(): Promise<void> {
+  public async requestRematch(answer: 'play_again' | 'had_enough'): Promise<void> {
     if (!this.gameSession) {
       throw new Error('No active game session');
     }
 
     if (this.gameSession.hotSeat && this.gameSession.players) {
-      await this.apiClient.requestRematch(this.gameSession.gameId, this.gameSession.players[0].sessionToken);
-      await this.apiClient.requestRematch(this.gameSession.gameId, this.gameSession.players[1].sessionToken);
+      await this.apiClient.requestRematch(this.gameSession.gameId, this.gameSession.players[0].sessionToken, answer);
+      await this.apiClient.requestRematch(this.gameSession.gameId, this.gameSession.players[1].sessionToken, answer);
       return;
     }
-    await this.apiClient.requestRematch(this.gameSession.gameId, this.gameSession.sessionToken);
+    await this.apiClient.requestRematch(this.gameSession.gameId, this.gameSession.sessionToken, answer);
+  }
+
+  public async skipWaiting(): Promise<void> {
+    if (!this.gameSession) throw new Error('No active game session');
+    await this.apiClient.skipWaiting(this.gameSession.gameId, this.gameSession.sessionToken);
   }
 
   /**
@@ -279,7 +292,10 @@ export class GameClient {
     switch (message.type) {
       case 'game_start':
         this.game.resetShotHistory();
-        this.game.setOpponentName(message.opponentName);
+        this.game.setPlayers(message.players);
+        const localPlayerId = this.game.getPlayerId();
+        const opponent = message.players.find(player => player.playerId !== localPlayerId);
+        this.game.setOpponentName(opponent?.playerName ?? 'Opponent');
         const gameId = message.gameId;
         this.game.setGameId(gameId);
         this.game.setBattlefield(message.battlefield);
@@ -291,18 +307,25 @@ export class GameClient {
 
       case 'shot':
         if (this.game.isHotSeat() || message.playerId === this.game.getPlayerId()) {
-          this.game.addShotToHistory(message.angle, message.velocity, this.game.isHotSeat() ? message.playerId as 0 | 1 : undefined);
+          this.game.addShotToHistory(message.angle, message.velocity, this.game.isHotSeat() ? message.playerId : undefined, message.direction);
         }
         if (this.onShotCallback) {
           this.onShotCallback({
             playerId: message.playerId,
             angle: message.angle,
-            velocity: message.velocity
+            velocity: message.velocity,
+            direction: message.direction
           });
         }
         break;
 
       case 'turn_change':
+        const previousPlayers = this.game.getPlayers();
+        const previousById = new Map(previousPlayers.map(player => [player.playerId, player]));
+        this.game.setPlayers(message.players);
+        message.players
+          .filter(player => !player.active && previousById.get(player.playerId)?.active)
+          .forEach(player => this.onPlayerHitCallback?.(player.playerId, player.playerName));
         this.game.setCurrentTurn(message.playerId_turn);
         const state = this.game.getState();
         if (this.onTurnChangeCallback) {
@@ -312,6 +335,12 @@ export class GameClient {
         break;
 
       case 'game_over':
+        const previousGameOverPlayers = this.game.getPlayers();
+        const previousGameOverById = new Map(previousGameOverPlayers.map(player => [player.playerId, player]));
+        this.game.setPlayers(message.players);
+        message.players
+          .filter(player => !player.active && previousGameOverById.get(player.playerId)?.active)
+          .forEach(player => this.onPlayerHitCallback?.(player.playerId, player.playerName));
         const gameOverState = this.game.getState();
         const myPlayerId = gameOverState.playerId;
         const didIWin = this.game.isHotSeat()
@@ -324,7 +353,11 @@ export class GameClient {
 
       case 'rematch_status':
         if (this.onRematchStatusCallback) {
-          this.onRematchStatusCallback(message.playersReady);
+          const legacyStatus = message as typeof message & { playersReady?: number };
+          const playersAnswered = message.playersAnswered ?? legacyStatus.playersReady ?? 0;
+          this.onRematchStatusCallback.length <= 1
+            ? (this.onRematchStatusCallback as unknown as (playersAnswered: number) => void)(playersAnswered)
+            : this.onRematchStatusCallback(playersAnswered, message.requiredPlayers, message.players);
         }
         break;
     }
@@ -351,8 +384,16 @@ export class GameClient {
     this.onGameOverCallback = callback;
   }
 
-  public onRematchStatus(callback: (playersReady: number) => void): void {
+  public onPlayerHit(callback: (playerId: number, playerName: string) => void): void {
+    this.onPlayerHitCallback = callback;
+  }
+
+  public onRematchStatus(callback: (playersAnswered: number, requiredPlayers: number, players: Array<{ playerId: number; playerName: string; answer?: 'play_again' | 'had_enough' | 'not_sure' }>) => void): void {
     this.onRematchStatusCallback = callback;
+  }
+
+  public onLobbyStatus(callback: (status: GameStatusResponse) => void): void {
+    this.onLobbyStatusCallback = callback;
   }
 
   /**
@@ -371,9 +412,10 @@ export class GameClient {
     return [this.gameSession.players[0].playerName, this.gameSession.players[1].playerName];
   }
 
-  private getTokenForPlayer(playerId: 0 | 1): string {
+  private getTokenForPlayer(playerId: number): string {
     if (this.gameSession?.hotSeat && this.gameSession.players) {
-      return this.gameSession.players[playerId].sessionToken;
+      const player = this.gameSession.players[playerId as 0 | 1];
+      return player?.sessionToken ?? '';
     }
     return this.gameSession?.sessionToken ?? '';
   }

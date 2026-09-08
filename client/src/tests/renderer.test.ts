@@ -165,6 +165,21 @@ describe('Renderer trajectory styles', () => {
     expect(fillTextSpy).toHaveBeenCalledWith('💥', 244, 142);
   });
 
+  it('keeps earlier RIP castles when a later player is defeated', () => {
+    const canvas = document.createElement('canvas');
+    const renderer = new Renderer(canvas);
+    renderer.applyBattlefield(battlefield);
+    renderer.setDefeatedPlayers([0]);
+    renderer.setRIPPlayers([0]);
+    renderer.setDefeatedPlayers([1]);
+    const fillTextSpy = vi.spyOn(context, 'fillText');
+
+    renderer.render({ projectile: null, historicalTrajectories: [], activeTrajectory: [] });
+
+    expect(fillTextSpy).toHaveBeenCalledWith('🪦', 14, 142);
+    expect(fillTextSpy).toHaveBeenCalledWith('💥', 244, 142);
+  });
+
   it('chooses two different random castle emoji for each player from the approved set', () => {
     const canvas = document.createElement('canvas');
     const renderer = new Renderer(canvas);

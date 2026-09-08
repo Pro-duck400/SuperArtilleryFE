@@ -64,6 +64,6 @@ describe('battlefield generation', () => {
 
     expect(samples.some(({ terrain }) => terrain.hillHeight > 0)).toBe(true);
     expect(samples.some(({ terrain }) => terrain.hillHeight < 0)).toBe(true);
-    expect(samples.some(({ terrain }) => terrain.hillHeight === 0)).toBe(true);
+    expect(samples.every(({ terrain }) => terrain.hillHeight !== 0)).toBe(true);
   });
 });

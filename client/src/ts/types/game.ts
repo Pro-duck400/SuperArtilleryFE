@@ -13,7 +13,7 @@ export interface Projectile {
 }
 
 export interface GameState {
-  playerId: 0 | 1 | null;
-  currentTurn: 0 | 1;
+  playerId: number | null;
+  currentTurn: number;
   isMyTurn: boolean;
 }
