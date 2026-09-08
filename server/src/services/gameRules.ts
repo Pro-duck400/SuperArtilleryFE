@@ -2,10 +2,10 @@ import { WebSocket } from 'ws';
 import type { Battlefield } from '../types/messages';
 import type { GameStatus, PrivateGame } from '../types/private-game';
 import { createBattlefield } from '../utils/battlefield';
-import { calculateCastleHit } from '../utils/shotResolver';
+import { calculateCastleHits } from '../utils/shotResolver';
 
 export type FireTransition =
-  | { kind: 'hit'; hitTime: number; targetPlayerId: number; winnerPlayerId?: number }
+  | { kind: 'hit'; hitTime: number; targetPlayerId: number; targetPlayerIds: number[]; winnerPlayerId?: number }
   | { kind: 'miss'; nextPlayerId: number };
 
 export type RematchTransition =
@@ -164,22 +164,27 @@ export class GameRules {
     const slots = this.ensureLobbySlots(game);
     const battlefield = game.battlefield ?? createBattlefield(Date.now(), slots.length);
     game.battlefield = battlefield;
-    const hit = calculateCastleHit(battlefield, playerId, angle, velocity, direction);
+    const hits = calculateCastleHits(battlefield, playerId, angle, velocity, direction);
 
-    if (hit !== null) {
-      const target = slots[hit.playerId];
-      if (target) {
-        target.active = false;
-        target.eliminated = true;
-      }
+    if (hits.length > 0) {
+      // A shot pierces every castle in its path, so all of them are eliminated together.
+      const targetPlayerIds = hits.map(hit => hit.playerId);
+      targetPlayerIds.forEach(targetId => {
+        const target = slots[targetId];
+        if (target) {
+          target.active = false;
+          target.eliminated = true;
+        }
+      });
+      const lastHitTime = hits[hits.length - 1].hitTime;
       const survivors = slots.filter(slot => slot.active && !slot.eliminated);
       if (survivors.length <= 1) {
         game.status = 'finished';
         game.gameFinishedAt = now;
-        return { kind: 'hit', hitTime: hit.hitTime, targetPlayerId: hit.playerId, winnerPlayerId: survivors[0]?.playerId };
+        return { kind: 'hit', hitTime: lastHitTime, targetPlayerId: targetPlayerIds[0], targetPlayerIds, winnerPlayerId: survivors[0]?.playerId };
       }
       game.currentTurn = this.nextActivePlayer(game, playerId);
-      return { kind: 'hit', hitTime: hit.hitTime, targetPlayerId: hit.playerId };
+      return { kind: 'hit', hitTime: lastHitTime, targetPlayerId: targetPlayerIds[0], targetPlayerIds };
     }
 
     game.currentTurn = this.nextActivePlayer(game, playerId);

@@ -92,9 +92,9 @@ describe('GameManager', () => {
 
       const status = gameManager.getGameStatus(created.gameId, created.playerToken);
       if ('error' in status) throw new Error('Should return lobby status');
-      expect(status.requiredPlayers).toBe(4);
+      expect(status.required).toBe(4);
       expect(status.playersConnected).toBe(3);
-      expect(status.slots.map(slot => slot.playerName)).toEqual(['Alice', 'Bob', 'Charlie', undefined]);
+      expect(status.slots.map(slot => slot.name)).toEqual(['Alice', 'Bob', 'Charlie', undefined]);
       expect(status.slots.map(slot => slot.status)).toEqual(['ready', 'ready', 'ready', 'waiting']);
     });
 
@@ -113,7 +113,7 @@ describe('GameManager', () => {
       if ('error' in skipped) throw new Error('Should skip waiting players');
       expect(skipped.started).toBe(true);
       expect(skipped.playersConnected).toBe(2);
-      expect(skipped.requiredPlayers).toBe(2);
+      expect(skipped.required).toBe(2);
     });
 
     it('starts a full three-player lobby and broadcasts the roster to every socket', () => {
@@ -136,7 +136,7 @@ describe('GameManager', () => {
         const start = socket.send.mock.calls
           .map(([payload]) => JSON.parse(payload as string))
           .find(message => message.type === 'game_start');
-        expect(start.players.map((player: { playerName: string }) => player.playerName)).toEqual(['Alex', 'Bob', 'Alice']);
+        expect(start.players.map((player: { name: string }) => player.name)).toEqual(['Alex', 'Bob', 'Alice']);
       }
     });
 
@@ -262,7 +262,7 @@ describe('GameManager', () => {
 
       // Both games should be in stats
       let stats = gameManager.getStats();
-      expect(stats.gameCount).toBe(2);
+      expect(stats.games).toBe(2);
 
       // After shutdown and restart, games would be gone
       // (In real scenario with time-based expiry)
@@ -286,7 +286,7 @@ describe('GameManager', () => {
       }
 
       const stats = gameManager.getStats();
-      expect(stats.maxGamesReached).toBe(true);
+      expect(stats.maxReached).toBe(true);
     });
   });
 
@@ -296,7 +296,7 @@ describe('GameManager', () => {
       if ('error' in created) throw new Error('Should create game');
 
       // Mock WebSocket
-      const mockWs = { readyState: WebSocket.OPEN } as any;
+      const mockWs = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
 
       const result = gameManager.connectPlayer(created.gameId, created.playerToken, mockWs);
       if ('error' in result) throw new Error('Should connect player');
@@ -381,7 +381,7 @@ describe('GameManager', () => {
         .map(([payload]: [string]) => JSON.parse(payload))
         .filter((message: { type: string }) => message.type === 'turn_change')
         .at(-1);
-      expect(firstTurn.playerId_turn).toBe(1);
+      expect(firstTurn.turnId).toBe(1);
 
       const secondShot = gameManager.fire(created.gameId, accepted.playerToken, 45, 30);
       expect('error' in secondShot).toBe(false);
@@ -389,7 +389,7 @@ describe('GameManager', () => {
         .map(([payload]: [string]) => JSON.parse(payload))
         .filter((message: { type: string }) => message.type === 'turn_change')
         .at(-1);
-      expect(secondTurn.playerId_turn).toBe(0);
+      expect(secondTurn.turnId).toBe(0);
     });
 
     it('rejects fire with invalid session token', () => {
@@ -473,8 +473,8 @@ describe('GameManager', () => {
       const finalResponse = gameManager.requestRematch(created.gameId, accepted.playerToken, 'had_enough');
       expect(finalResponse).toMatchObject({ success: true, playersReady: 1, roundStarted: false });
       expect(finalResponse.players).toEqual(expect.arrayContaining([
-        expect.objectContaining({ playerId: 0, playerName: 'Alice', answer: 'play_again' }),
-        expect.objectContaining({ playerId: 1, playerName: 'Bob', answer: 'had_enough' })
+        expect.objectContaining({ playerId: 0, name: 'Alice', answer: 'play_again' }),
+        expect.objectContaining({ playerId: 1, name: 'Bob', answer: 'had_enough' })
       ]));
       expect((gameManager as any).games.get(created.gameId).rematchAnswers).toEqual([null, null]);
     });
@@ -483,15 +483,15 @@ describe('GameManager', () => {
   describe('game statistics', () => {
     it('returns accurate game count', () => {
       const stats1 = gameManager.getStats();
-      expect(stats1.gameCount).toBe(0);
+      expect(stats1.games).toBe(0);
 
       gameManager.createGame('Alice');
       const stats2 = gameManager.getStats();
-      expect(stats2.gameCount).toBe(1);
+      expect(stats2.games).toBe(1);
 
       gameManager.createGame('Bob');
       const stats3 = gameManager.getStats();
-      expect(stats3.gameCount).toBe(2);
+      expect(stats3.games).toBe(2);
     });
 
     it('counts only pending invitations', () => {
@@ -499,12 +499,12 @@ describe('GameManager', () => {
       if ('error' in created) throw new Error('Should create game');
 
       let stats = gameManager.getStats();
-      expect(stats.invitationCount).toBe(1);
+      expect(stats.inviteCount).toBe(1);
 
       // Accept the invitation
       gameManager.acceptInvitation(created.inviteCode, 'Bob');
       stats = gameManager.getStats();
-      expect(stats.invitationCount).toBe(0); // Invitation accepted
+      expect(stats.inviteCount).toBe(0); // Invitation accepted
     });
   });
 });

@@ -71,6 +71,21 @@ let pendingDefeatedPlayerIds: number[] = [];
 let pendingHitName: string | null = null;
 let pendingRipPlayerIds: number[] = [];
 
+function refreshRosterPositions(): void {
+  if (!game.getBattlefield()) return;
+  uiManager.setRosterNames(
+    game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.name, active: player.active })),
+    new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
+  );
+}
+
+// Browser zoom/viewport changes can change the canvas's displayed CSS size
+// without re-triggering game events, so name labels must be recomputed.
+window.addEventListener('resize', refreshRosterPositions);
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(refreshRosterPositions).observe(canvas);
+}
+
 function schedulePendingRip(): void {
   if (pendingRipPlayerIds.length === 0) return;
   const ripPlayerIds = [...pendingRipPlayerIds];
@@ -79,7 +94,7 @@ function schedulePendingRip(): void {
     renderer.setRIPPlayers(ripPlayerIds);
     renderer.render({ projectile: null, activeTrajectory, historicalTrajectories });
     uiManager.setRosterNames(
-      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.playerName, active: player.active })),
+      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.name, active: player.active })),
       new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
     );
   }, 1000);
@@ -97,7 +112,7 @@ function applyPendingPresentation(): void {
       renderer.render({ projectile: null, activeTrajectory, historicalTrajectories });
     }
     schedulePendingRip();
-    const winnerName = game.getPlayers().find(player => player.active)?.playerName ?? 'Unknown player';
+    const winnerName = game.getPlayers().find(player => player.active)?.name ?? 'Unknown player';
     uiManager.showGameOver(winnerName);
     return;
   }
@@ -123,7 +138,7 @@ function applyPendingPresentation(): void {
     renderer.setActiveTurn(turn.playerId);
     renderer.render({ projectile: null, activeTrajectory, historicalTrajectories });
     const localNames = game.isHotSeat() ? hotSeatNames : null;
-    const rosterPlayerName = game.getPlayers().find(player => player.playerId === turn.playerId)?.playerName;
+    const rosterPlayerName = game.getPlayers().find(player => player.playerId === turn.playerId)?.name;
     const turnPlayerName = localNames
       ? localNames[turn.playerId]
       : (rosterPlayerName ?? (turn.isMyTurn ? clientName : opponentName));
@@ -161,7 +176,7 @@ function wireGameClientEvents(client: GameClient): void {
   client.onLobbyStatus((status) => {
     if (status.status === 'pending') {
       uiManager.showLobbyStatus(status.slots, status.canSkipWaiting);
-      uiManager.setMessage(`${status.playersConnected}/${status.requiredPlayers} players connected`);
+      uiManager.setMessage(`${status.playersConnected}/${status.required} players connected`);
     }
   });
 
@@ -171,7 +186,7 @@ function wireGameClientEvents(client: GameClient): void {
     uiManager.prepareForNewRound();
     renderer.applyBattlefield(battlefield);
     uiManager.setRosterNames(
-      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.playerName, active: player.active })),
+      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.name, active: player.active })),
       new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
     );
     historicalTrajectories = [];
@@ -211,7 +226,7 @@ function wireGameClientEvents(client: GameClient): void {
     if (lastGameStartMessage) {
       const localPlayerId = client.getPlayerId();
       const opponent = lastGameStartMessage.players.find(player => player.playerId !== localPlayerId);
-      opponentName = opponent?.playerName ?? opponentName;
+      opponentName = opponent?.name ?? opponentName;
     }
 
     // Switch from the registration/lobby panel (invite info) to the battlefield now that the opponent has joined.
@@ -264,7 +279,7 @@ function wireGameClientEvents(client: GameClient): void {
     uiManager.renderShotHistory(inputHistory);
     uiManager.setShotInputs(inputHistory[0]);
     uiManager.setRosterNames(
-      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.playerName, active: player.active || pendingDefeatedPlayerIds.includes(player.playerId) })),
+      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.name, active: player.active || pendingDefeatedPlayerIds.includes(player.playerId) })),
       new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
     );
     uiManager.updateTurnUI(activePlayerId, isMyTurn);

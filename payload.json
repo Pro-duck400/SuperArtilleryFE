@@ -1,0 +1,129 @@
+📤 WebSocket message type=game_start game=9ac9318a-ae2c-461a-81e2-e8f9ab8ad7c4 to=Alex payload={
+  "type": "game_start",
+  "gameId": "9ac9318a-ae2c-461a-81e2-e8f9ab8ad7c4",
+  "players": [
+    {
+      "playerId": 0,
+      "playerName": "Alex",
+      "active": true,
+      "connected": true
+    },
+    {
+      "playerId": 1,
+      "playerName": "Bob",
+      "active": true,
+      "connected": true
+    },
+    {
+      "playerId": 2,
+      "playerName": "John",
+      "active": true,
+      "connected": true
+    },
+    {
+      "playerId": 3,
+      "playerName": "Barbar",
+      "active": true,
+      "connected": true
+    },
+    {
+      "playerId": 4,
+      "playerName": "Ted",
+      "active": true,
+      "connected": true
+    },
+    {
+      "playerId": 5,
+      "playerName": "Alice",
+      "active": true,
+      "connected": true
+    },
+    {
+      "playerId": 6,
+      "playerName": "Sarah",
+      "active": true,
+      "connected": true
+    },
+    {
+      "playerId": 7,
+      "playerName": "Collin",
+      "active": true,
+      "connected": true
+    },
+    {
+      "playerId": 8,
+      "playerName": "Kate",
+      "active": true,
+      "connected": true
+    }
+  ],
+  "battlefield": {
+    "canvasWidth": 1340,
+    "canvasHeight": 310,
+    "gravity": 100,
+    "wind": 38.58017169404775,
+    "groundY": 290,
+    "castleWidth": 10,
+    "castleHeight": 10,
+    "castles": [
+      {
+        "playerId": 0,
+        "left_x": 15,
+        "base_y": 171.01249780505896
+      },
+      {
+        "playerId": 1,
+        "left_x": 177.5,
+        "base_y": 171.01249780505896
+      },
+      {
+        "playerId": 2,
+        "left_x": 340,
+        "base_y": 171.01249780505896
+      },
+      {
+        "playerId": 3,
+        "left_x": 502.5,
+        "base_y": 171.01249780505896
+      },
+      {
+        "playerId": 4,
+        "left_x": 665,
+        "base_y": 260.14441712060943
+      },
+      {
+        "playerId": 5,
+        "left_x": 827.5,
+        "base_y": 260.4012008709833
+      },
+      {
+        "playerId": 6,
+        "left_x": 990,
+        "base_y": 260.4012008709833
+      },
+      {
+        "playerId": 7,
+        "left_x": 1152.5,
+        "base_y": 260.4012008709833
+      },
+      {
+        "playerId": 8,
+        "left_x": 1315,
+        "base_y": 260.4012008709833
+      }
+    ],
+    "terrain": {
+      "version": 2,
+      "seed": 2147733380,
+      "sampleWidth": 2,
+      "minY": 0,
+      "maxY": 290,
+      "hillCenter": 670,
+      "hillWidth": 134,
+      "hillHeight": -44.4375677825883,
+      "leftY": 171.01249780505896,
+      "rightY": 260.4012008709833
+    }
+  },
+  "round": 1
+}

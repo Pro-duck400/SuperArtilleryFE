@@ -47,10 +47,10 @@ export function createApiRouter(game: GameManager): Router {
   const router = Router();
 
   router.use((req, res, next) => {
-    const bodyPlayerName = typeof req.body?.playerName === 'string'
-      ? req.body.playerName
-      : typeof req.body?.firstPlayerName === 'string'
-        ? [req.body.firstPlayerName, req.body.secondPlayerName].filter((name): name is string => typeof name === 'string').join(', ')
+    const bodyPlayerName = typeof req.body?.name === 'string'
+      ? req.body.name
+      : typeof req.body?.firstName === 'string'
+        ? [req.body.firstName, req.body.secondName].filter((name): name is string => typeof name === 'string').join(', ')
         : undefined;
     const token = typeof req.query.sessionToken === 'string' ? req.query.sessionToken : undefined;
     const gameId = typeof req.params.gameId === 'string' ? req.params.gameId : undefined;
@@ -83,12 +83,12 @@ export function createApiRouter(game: GameManager): Router {
     const timestamp = new Date();
     const uptime = process.uptime();
     const healthResponse: HealthResponse = {
-      status: stats.maxGamesReached ? 'degraded' : 'ok',
+      status: stats.maxReached ? 'degraded' : 'ok',
       timestamp: timestamp.toISOString(),
       uptime: formatUptime(uptime),
-      gameCount: stats.gameCount,
-      invitationCount: stats.invitationCount,
-      maxGamesReached: stats.maxGamesReached,
+      games: stats.games,
+      inviteCount: stats.inviteCount,
+      maxReached: stats.maxReached,
       version: SERVER_VERSION,
       contractVersion: CONTRACT_VERSION
     };
@@ -97,7 +97,7 @@ export function createApiRouter(game: GameManager): Router {
 
   // POST /api/v1/games - Create a private game
   router.post('/v1/games', (req, res) => {
-    const { playerName, playerCount, clientUrl } = req.body;
+    const { name, playerCount, clientUrl } = req.body;
     const clientOrigin = typeof clientUrl === 'string' ? clientUrl : getClientBaseUrl(req);
     const forwardedProto = req.headers['x-forwarded-proto'];
     const protocol = typeof forwardedProto === 'string'
@@ -105,7 +105,7 @@ export function createApiRouter(game: GameManager): Router {
       : req.protocol;
     const serverOrigin = process.env.SERVER_URL || `${protocol}://${req.get('host')}`;
 
-    const result = game.createGame(playerName, clientOrigin, serverOrigin, playerCount ?? 2);
+    const result = game.createGame(name, clientOrigin, serverOrigin, playerCount ?? 2);
 
     if ('error' in result) {
       const statusCode = result.code === GameManager.ERROR_CODES.MAX_GAMES_REACHED ? HTTP_STATUS.SERVICE_UNAVAILABLE : HTTP_STATUS.BAD_REQUEST;
@@ -142,8 +142,8 @@ export function createApiRouter(game: GameManager): Router {
   });
 
   router.post('/v1/hot-seat/games', (req, res) => {
-    const { firstPlayerName, secondPlayerName } = req.body;
-    const result = game.createHotSeatGame(firstPlayerName, secondPlayerName);
+    const { firstName, secondName } = req.body;
+    const result = game.createHotSeatGame(firstName, secondName);
     if ('error' in result) {
       const statusCode = result.code === GameManager.ERROR_CODES.MAX_GAMES_REACHED
         ? HTTP_STATUS.SERVICE_UNAVAILABLE
@@ -155,8 +155,8 @@ export function createApiRouter(game: GameManager): Router {
 
   // POST /api/v1/invitations/accept - Accept an invitation
   router.post('/v1/invitations/accept', (req, res) => {
-    const { inviteCode, playerName } = req.body;
-    const result = game.acceptInvitation(inviteCode, playerName);
+    const { inviteCode, name } = req.body;
+    const result = game.acceptInvitation(inviteCode, name);
 
     if ('error' in result) {
       const statusCode = result.code === GameManager.ERROR_CODES.INVITATION_EXPIRED ? HTTP_STATUS.GONE : HTTP_STATUS.BAD_REQUEST;
@@ -224,7 +224,7 @@ export function createApiRouter(game: GameManager): Router {
       answer: result.answer,
       playersAnswered: result.playersAnswered,
       playersReady: result.playersReady,
-      requiredPlayers: result.requiredPlayers,
+      required: result.required,
       players: result.players,
       roundStarted: result.roundStarted
     });

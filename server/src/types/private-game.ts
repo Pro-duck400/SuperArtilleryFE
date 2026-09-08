@@ -91,35 +91,35 @@ export interface AcceptInvitationResponse {
 export interface CreateHotSeatResponse {
   gameId: string;
   players: [
-    { playerId: 0; playerName: string; playerToken: string },
-    { playerId: 1; playerName: string; playerToken: string }
+    { playerId: 0; name: string; playerToken: string },
+    { playerId: 1; name: string; playerToken: string }
   ];
 }
 
 export interface GameStatusResponse {
   status: GameStatus;
   playersConnected: number;
-  requiredPlayers: number;
-  rematchReady: boolean;
-  rematchPlayersReady: number;
-  slots: Array<{ playerId: number; playerName?: string; status: LobbySlotStatus }>;
+  required: number;
+  ready: boolean;
+  readyCount: number;
+  slots: Array<{ playerId: number; name?: string; status: LobbySlotStatus }>;
   canSkipWaiting: boolean;
 }
 
 export interface SkipWaitingResponse {
   started: boolean;
   playersConnected: number;
-  requiredPlayers: number;
-  slots: Array<{ playerId: number; playerName?: string; status: LobbySlotStatus }>;
+  required: number;
+  slots: Array<{ playerId: number; name?: string; status: LobbySlotStatus }>;
 }
 
 export interface HealthResponse {
   status: 'ok' | 'degraded';
   timestamp: string;
   uptime: string;
-  gameCount: number;
-  invitationCount: number;
-  maxGamesReached: boolean;
+  games: number;
+  inviteCount: number;
+  maxReached: boolean;
   version: string;
   contractVersion: string;
 }

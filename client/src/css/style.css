@@ -30,7 +30,7 @@ body {
 }
 
 #gamePanel {
-  width: min(100%, 1200px);
+  width: min(100%, 1800px);
   max-width: 100%;
   margin: 0 auto;
 }
@@ -192,11 +192,13 @@ canvas {
   width: min(320px, 100%);
   margin: 16px auto 0;
   text-align: left;
+  font-size: 12px;
 }
 
 .lobby-status ol {
-  margin: 0 0 10px 28px;
-  padding: 0;
+  width: fit-content;
+  margin: 0 auto 10px;
+  padding: 0 0 0 20px;
 }
 
 .lobby-status li {
@@ -411,7 +413,9 @@ button:not(:disabled):hover {
   width: fit-content;
   min-width: 220px;
   margin: 0 auto 8px;
-  text-align: left;
+  text-align: center;
+  font-size: 12px;
+  color: #ccc;
 }
 
 #playAgainButton,

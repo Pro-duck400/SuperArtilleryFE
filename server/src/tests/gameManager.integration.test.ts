@@ -75,7 +75,7 @@ describe('Integration: Private Games Flow', () => {
       const accepted = gameManager.acceptInvitation(created.inviteCode, 'Bob');
       if ('error' in accepted) throw new Error('Should accept invitation');
 
-      const mockWs = { readyState: WebSocket.OPEN } as any;
+      const mockWs = { readyState: WebSocket.OPEN, send: vi.fn() } as any;
       const result = gameManager.connectPlayer(created.gameId, accepted.playerToken, mockWs);
       if ('error' in result) throw new Error('Connection should succeed');
 
@@ -92,7 +92,7 @@ describe('Integration: Private Games Flow', () => {
       if ('error' in status) throw new Error('Should get status');
       expect(status.status).toBe('pending');
 
-      const mockWs = { readyState: WebSocket.OPEN, close: vi.fn() } as any;
+      const mockWs = { readyState: WebSocket.OPEN, close: vi.fn(), send: vi.fn() } as any;
       gameManager.connectPlayer(created.gameId, created.playerToken, mockWs);
       gameManager.disconnectPlayer(created.gameId, 0, mockWs);
 
@@ -162,9 +162,9 @@ describe('Integration: Private Games Flow', () => {
       if ('error' in game2) throw new Error('Should create game');
 
       const stats = gameManager.getStats();
-      expect(stats.gameCount).toBe(2);
-      expect(stats.invitationCount).toBe(1);
-      expect(stats.maxGamesReached).toBe(false);
+      expect(stats.games).toBe(2);
+      expect(stats.inviteCount).toBe(1);
+      expect(stats.maxReached).toBe(false);
     });
   });
 
@@ -244,7 +244,7 @@ describe('Integration: Private Games Flow', () => {
       }
 
       const stats = gameManager.getStats();
-      expect(stats.gameCount).toBeGreaterThan(0);
+      expect(stats.games).toBeGreaterThan(0);
     });
   });
 });

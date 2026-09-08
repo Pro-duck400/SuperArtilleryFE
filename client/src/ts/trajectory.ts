@@ -26,13 +26,13 @@ export function calculateShotTrajectory(
 
   const adjustedAngle = shot.direction
     ? shot.direction === 'Left' ? 180 - shot.angle : shot.angle
-    : castle.left_x + battlefield.castleWidth / 2 < battlefield.canvasWidth / 2
+    : castle.left_x + battlefield.castleW / 2 < battlefield.width / 2
       ? shot.angle
       : 180 - shot.angle;
   const velocity = Physics.calculateVelocityComponents(adjustedAngle, shot.velocity);
   let projectile: Projectile = {
-    x: castle.left_x + battlefield.castleWidth / 2,
-    y: castle.base_y - battlefield.castleHeight,
+    x: castle.left_x + battlefield.castleW / 2,
+    y: castle.base_y - battlefield.castleH,
     vx: velocity.vx,
     vy: velocity.vy
   };
@@ -50,7 +50,7 @@ export function calculateShotTrajectory(
     if (
       projectile.y >= Terrain.getY(battlefield, projectile.x) ||
       projectile.x < 0 ||
-      projectile.x > battlefield.canvasWidth
+      projectile.x > battlefield.width
     ) {
       break;
     }

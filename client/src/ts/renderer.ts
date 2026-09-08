@@ -134,11 +134,11 @@ export class Renderer {
 
   public applyBattlefield(battlefield: BattlefieldConfig): void {
     this.battlefield = battlefield;
-    this.canvas.width = battlefield.canvasWidth;
-    this.canvas.height = battlefield.canvasHeight;
+    this.canvas.width = battlefield.width;
+    this.canvas.height = battlefield.height;
     this.groundY = battlefield.groundY;
-    this.castleWidth = battlefield.castleWidth;
-    this.castleHeight = battlefield.castleHeight;
+    this.castleWidth = battlefield.castleW;
+    this.castleHeight = battlefield.castleH;
     this.defeatedCastlePlayerIds.clear();
     this.ripCastlePlayerIds.clear();
     this.randomizeCastleGlyphs();
@@ -181,13 +181,17 @@ export class Renderer {
 
   public getCastleLabelPosition(playerId: number): { x: number; y: number } {
     const castle = this.battlefield?.castles.find((item) => item.playerId === playerId);
-    if (!castle) {
-      return { x: this.getCastleMuzzleX(playerId), y: this.groundY };
-    }
+    const bufferX = castle ? castle.left_x + this.castleWidth / 2 : this.getCastleMuzzleX(playerId);
+    const bufferY = castle ? castle.base_y + 4 : this.groundY;
+
+    // The canvas is drawn at a fixed buffer size but can be scaled down by CSS
+    // (max-width: 100%; height: auto), so labels must convert to displayed CSS pixels.
+    const scaleX = this.canvas.width ? this.canvas.clientWidth / this.canvas.width : 1;
+    const scaleY = this.canvas.height ? this.canvas.clientHeight / this.canvas.height : 1;
 
     return {
-      x: castle.left_x + this.castleWidth / 2,
-      y: castle.base_y + 4
+      x: bufferX * (scaleX || 1),
+      y: bufferY * (scaleY || 1)
     };
   }
 

@@ -110,7 +110,7 @@ export class Game {
   public setPlayers(players: PlayerState[]): void {
     this.players = new Map(players.map(player => [player.playerId, { ...player }]));
     const localPlayer = this.state.playerId === null ? undefined : this.players.get(this.state.playerId);
-    if (localPlayer) this.playerName = localPlayer.playerName;
+    if (localPlayer) this.playerName = localPlayer.name;
   }
 
   public getPlayers(): PlayerState[] {

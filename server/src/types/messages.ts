@@ -10,6 +10,7 @@ export type TurnChangeMessage = components['schemas']['TurnChangeMessage'];
 export type GameOverMessage = components['schemas']['GameOverMessage'];
 export type RematchStatusMessage = components['schemas']['RematchStatusMessage'];
 export type WebSocketErrorMessage = components['schemas']['WebSocketErrorMessage'];
+export type LobbyStatusMessage = components['schemas']['LobbyStatusMessage'];
 
 export type GameMessage = components['schemas']['GameMessage'];
 

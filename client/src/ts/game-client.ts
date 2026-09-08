@@ -34,7 +34,8 @@ export class GameClient {
   private wsBaseUrl: string;
   private lastGameStartMessage: GameStartMessage | null = null;
   private gameSession: GameSession | null = null;
-  private statusPollInterval: ReturnType<typeof setInterval> | null = null;
+  private pendingConnectResolve: (() => void) | null = null;
+  private pendingConnectReject: ((error: Error) => void) | null = null;
   private onShotCallback: ((data: ShotEventData) => void) | null = null;
   private onTurnChangeCallback: ((playerId: number, isMyTurn: boolean) => void) | null = null;
   private onGameStartCallback: ((gameId: string, battlefield: BattlefieldConfig) => void) | null = null;
@@ -129,23 +130,23 @@ export class GameClient {
     this.gameSession = {
       gameId: response.gameId,
       sessionToken: response.players[0].playerToken,
-      playerName: response.players[0].playerName,
+      playerName: response.players[0].name,
       hotSeat: true,
       players: [
-        { playerId: 0, playerName: response.players[0].playerName, sessionToken: response.players[0].playerToken },
-        { playerId: 1, playerName: response.players[1].playerName, sessionToken: response.players[1].playerToken }
+        { playerId: 0, playerName: response.players[0].name, sessionToken: response.players[0].playerToken },
+        { playerId: 1, playerName: response.players[1].name, sessionToken: response.players[1].playerToken }
       ]
     };
     this.saveSession();
     this.game.setGameId(response.gameId);
-    this.game.setPlayer(0, response.players[0].playerName);
-    this.game.setOpponentName(response.players[1].playerName);
+    this.game.setPlayer(0, response.players[0].name);
+    this.game.setOpponentName(response.players[1].name);
     this.game.setHotSeat(true);
     return response;
   }
 
   /**
-   * Connect to a game and start polling for status
+   * Connect to a game and wait for the WebSocket roster/start updates
    */
   public async connectToGame(): Promise<void> {
     if (!this.gameSession) {
@@ -153,7 +154,7 @@ export class GameClient {
     }
 
     // Connect WebSocket with gameId and sessionToken first - the server only counts
-    // a player as "connected" once its socket is open, so polling status beforehand
+    // a player as "connected" once its socket is open, so waiting on status beforehand
     // would deadlock (both clients waiting for a count that never increments).
     const wsUrl = `${this.wsBaseUrl}?gameId=${encodeURIComponent(
       this.gameSession.gameId
@@ -177,69 +178,60 @@ export class GameClient {
       );
     }
 
-    // Now wait until both players' sockets are connected
-    await Promise.race([this.pollGameStatus(), protocolError]);
+    // Now wait until the server pushes a game_start (roster updates arrive via lobby_status)
+    await Promise.race([this.waitForGameStart(), protocolError]);
   }
 
   /**
-   * Poll game status until both players are connected
+   * Wait for the server to push game_start over the already-open WebSocket. The server
+   * broadcasts a lobby_status message on every roster change while pending, so the client
+   * no longer needs to poll GET /games/{gameId}/status - it only fetches one snapshot up
+   * front to render the lobby immediately, in case it joins after other players are ready.
    */
-  private async pollGameStatus(): Promise<void> {
+  private async waitForGameStart(): Promise<void> {
     if (!this.gameSession) {
       throw new Error('No game session found');
     }
 
+    try {
+      const status = await this.apiClient.getGameStatus(
+        this.gameSession.gameId,
+        this.gameSession.sessionToken
+      );
+      this.onLobbyStatusCallback?.(status);
+
+      if (status.status === 'expired') {
+        throw new Error('Game expired. The server may have restarted.');
+      }
+      if (status.playersConnected === status.required) {
+        return;
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Game expired')) throw error;
+      console.error('Initial lobby status fetch failed:', error);
+    }
+
     const maxWaitTime = 5 * 60 * 1000; // 5 minutes
-    const startTime = Date.now();
-    const pollInterval = 1000; // 1 second
 
     return new Promise((resolve, reject) => {
-      const poll = async () => {
-        try {
-          const status = await this.apiClient.getGameStatus(
-            this.gameSession!.gameId,
-            this.gameSession!.sessionToken
-          );
-
-          this.onLobbyStatusCallback?.(status);
-
-          console.log(`Game status: ${status.playersConnected}/${status.requiredPlayers} connected`);
-
-          if (status.status === 'expired') {
-            reject(
-              new Error('Game expired. The server may have restarted.')
-            );
-            return;
-          }
-
-          if (status.playersConnected === status.requiredPlayers) {
-            if (this.statusPollInterval !== null) {
-              clearInterval(this.statusPollInterval);
-            }
-            this.statusPollInterval = null;
-            resolve();
-            return;
-          }
-
-          if (Date.now() - startTime > maxWaitTime) {
-            if (this.statusPollInterval !== null) {
-              clearInterval(this.statusPollInterval);
-            }
-            this.statusPollInterval = null;
-            reject(new Error('Game connection timeout'));
-            return;
-          }
-        } catch (error) {
-          console.error('Status poll error:', error);
-          // Continue polling even if one request fails
-        }
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        this.pendingConnectResolve = null;
+        this.pendingConnectReject = null;
       };
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('Game connection timeout'));
+      }, maxWaitTime);
 
-      // First poll immediately
-      poll();
-
-      // Then poll periodically
-      this.statusPollInterval = window.setInterval(poll, pollInterval);
+      this.pendingConnectResolve = () => {
+        cleanup();
+        resolve();
+      };
+      this.pendingConnectReject = (error: Error) => {
+        cleanup();
+        reject(error);
+      };
     });
   }
 
@@ -295,7 +287,7 @@ export class GameClient {
         this.game.setPlayers(message.players);
         const localPlayerId = this.game.getPlayerId();
         const opponent = message.players.find(player => player.playerId !== localPlayerId);
-        this.game.setOpponentName(opponent?.playerName ?? 'Opponent');
+        this.game.setOpponentName(opponent?.name ?? 'Opponent');
         const gameId = message.gameId;
         this.game.setGameId(gameId);
         this.game.setBattlefield(message.battlefield);
@@ -303,6 +295,7 @@ export class GameClient {
         if (this.onGameStartCallback) {
           this.onGameStartCallback(gameId, message.battlefield);
         }
+        this.pendingConnectResolve?.();
         break;
 
       case 'shot':
@@ -325,13 +318,13 @@ export class GameClient {
         this.game.setPlayers(message.players);
         message.players
           .filter(player => !player.active && previousById.get(player.playerId)?.active)
-          .forEach(player => this.onPlayerHitCallback?.(player.playerId, player.playerName));
-        this.game.setCurrentTurn(message.playerId_turn);
+          .forEach(player => this.onPlayerHitCallback?.(player.playerId, player.name));
+        this.game.setCurrentTurn(message.turnId);
         const state = this.game.getState();
         if (this.onTurnChangeCallback) {
-          this.onTurnChangeCallback(message.playerId_turn, state.isMyTurn);
+          this.onTurnChangeCallback(message.turnId, state.isMyTurn);
         }
-        console.log(`Turn changed to Player ${message.playerId_turn}`);
+        console.log(`Turn changed to Player ${message.turnId}`);
         break;
 
       case 'game_over':
@@ -340,14 +333,14 @@ export class GameClient {
         this.game.setPlayers(message.players);
         message.players
           .filter(player => !player.active && previousGameOverById.get(player.playerId)?.active)
-          .forEach(player => this.onPlayerHitCallback?.(player.playerId, player.playerName));
+          .forEach(player => this.onPlayerHitCallback?.(player.playerId, player.name));
         const gameOverState = this.game.getState();
         const myPlayerId = gameOverState.playerId;
         const didIWin = this.game.isHotSeat()
           ? true
-          : myPlayerId !== null && myPlayerId === message.playerId_winner;
+          : myPlayerId !== null && myPlayerId === message.winnerId;
         if (this.onGameOverCallback) {
-          this.onGameOverCallback(message.playerId_winner, didIWin);
+          this.onGameOverCallback(message.winnerId, didIWin);
         }
         break;
 
@@ -355,9 +348,25 @@ export class GameClient {
         if (this.onRematchStatusCallback) {
           const legacyStatus = message as typeof message & { playersReady?: number };
           const playersAnswered = message.playersAnswered ?? legacyStatus.playersReady ?? 0;
+          const players = (message.players ?? []).map(player => ({ playerId: player.playerId, playerName: player.name, answer: player.answer }));
           this.onRematchStatusCallback.length <= 1
             ? (this.onRematchStatusCallback as unknown as (playersAnswered: number) => void)(playersAnswered)
-            : this.onRematchStatusCallback(playersAnswered, message.requiredPlayers, message.players);
+            : this.onRematchStatusCallback(playersAnswered, message.required, players);
+        }
+        break;
+
+      case 'lobby_status':
+        this.onLobbyStatusCallback?.({
+          status: message.status,
+          playersConnected: message.playersConnected,
+          required: message.required,
+          slots: message.slots,
+          ready: false,
+          readyCount: 0,
+          canSkipWaiting: this.game.getPlayerId() === 0 && message.status === 'pending' && message.playersConnected >= 2
+        });
+        if (message.status === 'expired') {
+          this.pendingConnectReject?.(new Error('Game expired. The server may have restarted.'));
         }
         break;
     }

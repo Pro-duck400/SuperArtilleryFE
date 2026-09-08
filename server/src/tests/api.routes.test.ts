@@ -19,7 +19,7 @@ describe('API routes', () => {
   it('creates a game and returns invite details', async () => {
     const response = await request(app)
       .post('/api/v1/games')
-      .send({ playerName: 'Alice' })
+      .send({ name: 'Alice' })
       .expect(201);
 
     expect(response.body.gameId).toBeTruthy();
@@ -31,13 +31,13 @@ describe('API routes', () => {
   it('creates a hot-seat game with credentials for both players', async () => {
     const response = await request(app)
       .post('/api/v1/hot-seat/games')
-      .send({ firstPlayerName: 'Alice', secondPlayerName: 'Bob' })
+      .send({ firstName: 'Alice', secondName: 'Bob' })
       .expect(201);
 
     expect(response.body.gameId).toBeTruthy();
     expect(response.body.players).toHaveLength(2);
-    expect(response.body.players[0]).toMatchObject({ playerId: 0, playerName: 'Alice' });
-    expect(response.body.players[1]).toMatchObject({ playerId: 1, playerName: 'Bob' });
+    expect(response.body.players[0]).toMatchObject({ playerId: 0, name: 'Alice' });
+    expect(response.body.players[1]).toMatchObject({ playerId: 1, name: 'Bob' });
     expect(response.body.players[0].playerToken).toBeTruthy();
     expect(response.body.players[1].playerToken).toBeTruthy();
   });
@@ -48,7 +48,7 @@ describe('API routes', () => {
 
     const response = await request(app)
       .post('/api/v1/invitations/accept')
-      .send({ inviteCode: created.inviteCode, playerName: 'Bob' })
+      .send({ inviteCode: created.inviteCode, name: 'Bob' })
       .expect(200);
 
     expect(response.body.gameId).toBe(created.gameId);
@@ -77,9 +77,9 @@ describe('API routes', () => {
 
     expect(response.body.status).toBe('pending');
     expect(response.body.playersConnected).toBe(0);
-    expect(response.body.requiredPlayers).toBe(2);
-    expect(response.body.rematchReady).toBe(false);
-    expect(response.body.rematchPlayersReady).toBe(0);
+    expect(response.body.required).toBe(2);
+    expect(response.body.ready).toBe(false);
+    expect(response.body.readyCount).toBe(0);
   });
 
   it('rejects a rematch request before the game has finished', async () => {
@@ -119,9 +119,9 @@ describe('API routes', () => {
 
     expect(response.body).toMatchObject({
       status: 'ok',
-      gameCount: expect.any(Number),
-      invitationCount: expect.any(Number),
-      maxGamesReached: expect.any(Boolean),
+      games: expect.any(Number),
+      inviteCount: expect.any(Number),
+      maxReached: expect.any(Boolean),
       timestamp: expect.any(String),
       uptime: expect.stringMatching(/^\d+\.\d{2}:\d{2}:\d{2}\.\d{3}$/),
       contractVersion: CONTRACT_VERSION

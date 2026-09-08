@@ -5,7 +5,8 @@ import type {
   GameOverMessage,
   ShotMessage,
   GameMessage,
-  RematchStatusMessage
+  RematchStatusMessage,
+  LobbyStatusMessage
 } from '../types/messages';
 import type {
   PrivateGame,
@@ -190,8 +191,8 @@ export class GameManager {
     return {
       gameId,
       players: [
-        { playerId: 0, playerName: firstName, playerToken: firstToken },
-        { playerId: 1, playerName: secondName, playerToken: secondToken }
+        { playerId: 0, name: firstName, playerToken: firstToken },
+        { playerId: 1, name: secondName, playerToken: secondToken }
       ]
     };
   }
@@ -223,23 +224,46 @@ export class GameManager {
       };
     }
 
-    const playersConnected = game.hotSeat
-      ? (game.initiator.websocket?.readyState === WebSocket.OPEN ? 2 : 0)
-      : game.lobbySlots.filter(slot => slot.session.websocket?.readyState === WebSocket.OPEN).length;
+    const playersConnected = this.getPlayersConnected(game);
 
     return {
       status: game.status,
       playersConnected,
-      requiredPlayers: this.getRequiredPlayers(game),
-      rematchReady: playerId < 2 ? game.rematchReady[playerId] : false,
-      rematchPlayersReady: game.rematchReady.filter(Boolean).length,
-      slots: (game.lobbySlots.length ? game.lobbySlots : [game.initiator, game.invited].map((session, playerId) => ({ playerId, session, status: 'waiting' as const, active: true, eliminated: false }))).map(slot => ({
-        playerId: slot.playerId,
-        ...(slot.session.name ? { playerName: slot.session.name } : {}),
-        status: this.getLobbySlotStatus(game, slot.playerId)
-      })),
+      required: this.getRequiredPlayers(game),
+      ready: playerId < 2 ? game.rematchReady[playerId] : false,
+      readyCount: game.rematchReady.filter(Boolean).length,
+      slots: this.getLobbySlotViews(game),
       canSkipWaiting: playerId === 0 && game.status === 'pending' && playersConnected >= 2
     };
+  }
+
+  private getPlayersConnected(game: PrivateGame): number {
+    return game.hotSeat
+      ? (game.initiator.websocket?.readyState === WebSocket.OPEN ? 2 : 0)
+      : game.lobbySlots.filter(slot => slot.session.websocket?.readyState === WebSocket.OPEN).length;
+  }
+
+  private getLobbySlotViews(game: PrivateGame): Array<{ playerId: number; name?: string; status: LobbySlotStatus }> {
+    return (game.lobbySlots.length ? game.lobbySlots : [game.initiator, game.invited].map((session, playerId) => ({ playerId, session, status: 'waiting' as const, active: true, eliminated: false }))).map(slot => ({
+      playerId: slot.playerId,
+      ...(slot.session.name ? { name: slot.session.name } : {}),
+      status: this.getLobbySlotStatus(game, slot.playerId)
+    }));
+  }
+
+  /**
+   * Push a lobby roster/connection snapshot to every connected socket so clients
+   * no longer need to poll GET /games/{gameId}/status while waiting for players.
+   */
+  private broadcastLobbyStatus(game: PrivateGame): void {
+    const message: LobbyStatusMessage = {
+      type: 'lobby_status',
+      status: game.status,
+      playersConnected: this.getPlayersConnected(game),
+      required: this.getRequiredPlayers(game),
+      slots: this.getLobbySlotViews(game)
+    };
+    this.broadcastToGame(game, message);
   }
 
   private getLobbySlotStatus(game: PrivateGame, playerId: number): LobbySlotStatus {
@@ -307,6 +331,9 @@ export class GameManager {
     // Try to start game if both players are connected
     if (!game.gameStarted) {
       this.tryStartGame(game);
+      // game_start already broadcasts the full roster once ready, so only push
+      // a lobby update here while the game is still waiting for more players.
+      if (!game.gameStarted) this.broadcastLobbyStatus(game);
     }
 
     return { playerId };
@@ -398,10 +425,10 @@ export class GameManager {
     return {
       started: game.gameStarted,
       playersConnected: connectedSlots.length,
-      requiredPlayers: this.getRequiredPlayers(game),
+      required: this.getRequiredPlayers(game),
       slots: game.lobbySlots.map(slot => ({
         playerId: slot.playerId,
-        ...(slot.session.name ? { playerName: slot.session.name } : {}),
+        ...(slot.session.name ? { name: slot.session.name } : {}),
         status: slot.status
       }))
     };
@@ -427,6 +454,8 @@ export class GameManager {
     game.lobbySlots[playerId].session.websocket = null;
     if (game.status === 'pending') game.lobbySlots[playerId].status = 'waiting';
     if (playerId < 2) this.gameRules.disconnect(game, playerId as 0 | 1);
+    // Let remaining waiting players know someone left (or the lobby expired) in real time.
+    if (game.status === 'pending' || game.status === 'expired') this.broadcastLobbyStatus(game);
   }
 
   /**
@@ -447,7 +476,7 @@ export class GameManager {
     // Send initial turn change
     const turnMessage: TurnChangeMessage = {
       type: 'turn_change',
-      playerId_turn: game.currentTurn,
+      turnId: game.currentTurn,
       players: this.getPlayerStates(game)
     };
     this.broadcastToGame(game, turnMessage);
@@ -467,13 +496,13 @@ export class GameManager {
 
   private getPlayerStates(game: PrivateGame): Array<{
     playerId: number;
-    playerName: string;
+    name: string;
     active: boolean;
     connected: boolean;
   }> {
     return game.lobbySlots.map(slot => ({
       playerId: slot.playerId,
-      playerName: slot.session.name ?? `Player ${slot.playerId + 1}`,
+      name: slot.session.name ?? `Player ${slot.playerId + 1}`,
       active: slot.active && !slot.eliminated && slot.status !== 'skipped',
       connected: slot.session.websocket?.readyState === WebSocket.OPEN
     }));
@@ -488,8 +517,8 @@ export class GameManager {
     answer: import('../types/private-game').RematchAnswer;
     playersAnswered: number;
     playersReady: number;
-    requiredPlayers: number;
-    players: Array<{ playerId: number; playerName: string; answer?: import('../types/private-game').RematchAnswer }>;
+    required: number;
+    players: Array<{ playerId: number; name: string; answer?: import('../types/private-game').RematchAnswer }>;
     roundStarted: boolean;
   } | { success: false; error: string; code: string; statusCode: number } {
     const game = this.games.get(gameId);
@@ -535,10 +564,10 @@ export class GameManager {
     const statusMessage: RematchStatusMessage = {
       type: 'rematch_status',
       playersAnswered: transition.playersAnswered,
-      requiredPlayers: game.lobbySlots.length,
+      required: game.lobbySlots.length,
       players: game.lobbySlots.map(slot => ({
         playerId: slot.playerId,
-        playerName: slot.session.name ?? `Player ${slot.playerId + 1}`,
+        name: slot.session.name ?? `Player ${slot.playerId + 1}`,
         ...(answers[slot.playerId] ? { answer: answers[slot.playerId]! } : {})
       }))
     };
@@ -548,7 +577,7 @@ export class GameManager {
       this.broadcastGameStart(game, transition.battlefield);
       this.broadcastToGame(game, {
         type: 'turn_change',
-        playerId_turn: game.currentTurn,
+        turnId: game.currentTurn,
         players: this.getPlayerStates(game)
       });
     }
@@ -558,7 +587,7 @@ export class GameManager {
       answer,
       playersAnswered: transition.playersAnswered,
       playersReady: transition.playersReady,
-      requiredPlayers: game.lobbySlots.length,
+      required: game.lobbySlots.length,
       players: statusMessage.players,
       roundStarted: transition.kind === 'started'
     };
@@ -654,14 +683,14 @@ export class GameManager {
       if (transition.winnerPlayerId !== undefined) {
         const gameOverMessage: GameOverMessage = {
           type: 'game_over',
-          playerId_winner: transition.winnerPlayerId,
+          winnerId: transition.winnerPlayerId,
           players: this.getPlayerStates(game)
         };
         this.broadcastToGame(game, gameOverMessage);
       } else {
         this.broadcastToGame(game, {
           type: 'turn_change',
-          playerId_turn: game.currentTurn,
+          turnId: game.currentTurn,
           players: this.getPlayerStates(game)
         });
       }
@@ -671,7 +700,7 @@ export class GameManager {
     // Miss - switch turns
     const turnMessage: TurnChangeMessage = {
       type: 'turn_change',
-      playerId_turn: transition.nextPlayerId,
+      turnId: transition.nextPlayerId,
       players: this.getPlayerStates(game)
     };
     this.broadcastToGame(game, turnMessage);
@@ -705,21 +734,21 @@ export class GameManager {
    * Get game statistics for health check
    */
   public getStats(): {
-    gameCount: number;
-    invitationCount: number;
-    maxGamesReached: boolean;
+    games: number;
+    inviteCount: number;
+    maxReached: boolean;
   } {
-    let invitationCount = 0;
+    let inviteCount = 0;
     for (const game of this.games.values()) {
       if (game.status === 'pending' && !game.waitingSkipped && (!game.invitation.accepted || game.playerCount > 2)) {
-        invitationCount++;
+        inviteCount++;
       }
     }
 
     return {
-      gameCount: this.games.size,
-      invitationCount,
-      maxGamesReached: this.games.size >= GAME_CONFIG.maxActiveGames
+      games: this.games.size,
+      inviteCount,
+      maxReached: this.games.size >= GAME_CONFIG.maxActiveGames
     };
   }
 }

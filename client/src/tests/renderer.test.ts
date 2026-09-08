@@ -35,13 +35,13 @@ function createContext(): CanvasRenderingContext2D & { strokeStyles: string[] } 
 }
 
 const battlefield = {
-  canvasWidth: 420,
-  canvasHeight: 240,
+  width: 420,
+  height: 240,
   gravity: 100,
   wind: 0,
   groundY: 140,
-  castleWidth: 10,
-  castleHeight: 10,
+  castleW: 10,
+  castleH: 10,
   castles: [
     { playerId: 0, left_x: 20, base_y: 140 },
     { playerId: 1, left_x: 250, base_y: 140 }

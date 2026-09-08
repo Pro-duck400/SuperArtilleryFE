@@ -486,13 +486,13 @@ export interface components {
         PlayerId: number;
         LobbySlot: {
             playerId: components["schemas"]["PlayerId"];
-            playerName?: string;
+            name?: string;
             /** @enum {string} */
             status: "waiting" | "ready" | "skipped";
         };
         PlayerState: {
             playerId: components["schemas"]["PlayerId"];
-            playerName: string;
+            name: string;
             active: boolean;
             connected: boolean;
         };
@@ -506,14 +506,14 @@ export interface components {
             base_y: number;
         };
         Battlefield: {
-            canvasWidth: number;
-            canvasHeight: number;
+            width: number;
+            height: number;
             gravity: number;
             /** @description Signed horizontal wind acceleration; negative blows left and positive blows right */
             wind: number;
             groundY: number;
-            castleWidth: number;
-            castleHeight: number;
+            castleW: number;
+            castleH: number;
             castles: components["schemas"]["Castle"][];
             terrain: {
                 version: number;
@@ -527,11 +527,17 @@ export interface components {
                 hillWidth: number;
                 /** @description Signed cosine terrain variation; positive values create a crest, negative values create a depression, and zero produces a slope between the side elevations */
                 hillHeight: number;
+                /** @description Additional cosine hills/depressions summed on top of the main hill to vary terrain across wider battlefields */
+                extraHills?: {
+                    hillCenter: number;
+                    hillWidth: number;
+                    hillHeight: number;
+                }[];
             };
         };
         CreateGameRequest: {
             /** @description Display name for the initiating player (15 chars max, must start with alphanumeric) */
-            playerName: string;
+            name: string;
             /**
              * @description Number of player slots to reserve in the lobby
              * @default 2
@@ -558,12 +564,12 @@ export interface components {
             playerCount?: number;
         };
         CreateHotSeatRequest: {
-            firstPlayerName: string;
-            secondPlayerName: string;
+            firstName: string;
+            secondName: string;
         };
         HotSeatPlayer: {
             playerId: components["schemas"]["PlayerId"];
-            playerName: string;
+            name: string;
             playerToken: string;
         };
         CreateHotSeatResponse: {
@@ -574,7 +580,7 @@ export interface components {
             /** @description Short invite code from the invitation link or displayed code */
             inviteCode?: string;
             /** @description Display name for the invited player */
-            playerName: string;
+            name: string;
         };
         AcceptInvitationResponse: {
             /** @description Opaque game ID */
@@ -592,34 +598,34 @@ export interface components {
             /** @description Number of players currently connected via WebSocket */
             playersConnected: number;
             /** @description Required number of players for the game to start */
-            requiredPlayers: number;
+            required: number;
             slots: components["schemas"]["LobbySlot"][];
             /** @description Whether the authenticated creator can start with connected players */
             canSkipWaiting: boolean;
             /** @description Whether the authenticated player has requested another round */
-            rematchReady: boolean;
+            ready: boolean;
             /** @description Number of players who have requested another round */
-            rematchPlayersReady: number;
+            readyCount: number;
         };
         RematchResponse: {
             /** @enum {string} */
             answer: "play_again" | "had_enough" | "not_sure";
             playersAnswered: number;
-            requiredPlayers: number;
+            required: number;
             /** @description Whether every player chose play_again and a new round started */
             roundStarted: boolean;
             players: components["schemas"]["RematchPlayerStatus"][];
         };
         RematchPlayerStatus: {
             playerId: components["schemas"]["PlayerId"];
-            playerName: string;
+            name: string;
             /** @enum {string} */
             answer?: "play_again" | "had_enough" | "not_sure";
         };
         SkipWaitingResponse: {
             started: boolean;
             playersConnected: number;
-            requiredPlayers: number;
+            required: number;
             slots: components["schemas"]["LobbySlot"][];
         };
         FireRequest: {
@@ -657,11 +663,11 @@ export interface components {
             /** @description Server uptime formatted as D.HH:mm:ss.ggg */
             uptime: string;
             /** @description Number of active games */
-            gameCount: number;
+            games: number;
             /** @description Number of pending invitations */
-            invitationCount: number;
+            inviteCount: number;
             /** @description True if server is at maximum capacity */
-            maxGamesReached: boolean;
+            maxReached: boolean;
             version: string;
             /** @description Client/server protocol contract version */
             contractVersion: string;
@@ -696,7 +702,7 @@ export interface components {
              * @enum {string}
              */
             type: "turn_change";
-            playerId_turn: components["schemas"]["PlayerId"];
+            turnId: components["schemas"]["PlayerId"];
             players: components["schemas"]["PlayerState"][];
         };
         GameOverMessage: {
@@ -705,7 +711,7 @@ export interface components {
              * @enum {string}
              */
             type: "game_over";
-            playerId_winner: components["schemas"]["PlayerId"];
+            winnerId: components["schemas"]["PlayerId"];
             players: components["schemas"]["PlayerState"][];
         };
         RematchStatusMessage: {
@@ -715,7 +721,7 @@ export interface components {
              */
             type: "rematch_status";
             playersAnswered: number;
-            requiredPlayers: number;
+            required: number;
             players: components["schemas"]["RematchPlayerStatus"][];
         };
         WebSocketErrorMessage: {
@@ -733,7 +739,20 @@ export interface components {
                 [key: string]: unknown;
             };
         };
-        GameMessage: components["schemas"]["GameStartMessage"] | components["schemas"]["ShotMessage"] | components["schemas"]["TurnChangeMessage"] | components["schemas"]["GameOverMessage"] | components["schemas"]["RematchStatusMessage"] | components["schemas"]["WebSocketErrorMessage"];
+        /** @description Real-time push of lobby roster/connection changes while a game is still pending, so clients no longer need to poll GET /games/{gameId}/status */
+        LobbyStatusMessage: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "lobby_status";
+            /** @enum {string} */
+            status: "pending" | "active" | "finished" | "expired";
+            playersConnected: number;
+            required: number;
+            slots: components["schemas"]["LobbySlot"][];
+        };
+        GameMessage: components["schemas"]["GameStartMessage"] | components["schemas"]["ShotMessage"] | components["schemas"]["TurnChangeMessage"] | components["schemas"]["GameOverMessage"] | components["schemas"]["RematchStatusMessage"] | components["schemas"]["WebSocketErrorMessage"] | components["schemas"]["LobbyStatusMessage"];
     };
     responses: never;
     parameters: never;

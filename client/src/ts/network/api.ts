@@ -10,7 +10,7 @@ export interface CreateGameResponse {
 
 export interface LobbySlot {
   playerId: number;
-  playerName?: string;
+  name?: string;
   status: 'waiting' | 'ready' | 'skipped';
 }
 
@@ -23,17 +23,17 @@ export interface AcceptInvitationResponse {
 export interface CreateHotSeatResponse {
   gameId: string;
   players: [
-    { playerId: 0; playerName: string; playerToken: string },
-    { playerId: 1; playerName: string; playerToken: string }
+    { playerId: 0; name: string; playerToken: string },
+    { playerId: 1; name: string; playerToken: string }
   ];
 }
 
 export interface GameStatusResponse {
   status: 'pending' | 'active' | 'finished' | 'expired';
   playersConnected: number;
-  requiredPlayers: number;
-  rematchReady: boolean;
-  rematchPlayersReady: number;
+  required: number;
+  ready: boolean;
+  readyCount: number;
   slots: LobbySlot[];
   canSkipWaiting: boolean;
 }
@@ -41,15 +41,15 @@ export interface GameStatusResponse {
 export interface SkipWaitingResponse {
   started: boolean;
   playersConnected: number;
-  requiredPlayers: number;
+  required: number;
   slots: LobbySlot[];
 }
 
 export interface RematchResponse {
   answer: 'play_again' | 'had_enough';
   playersAnswered: number;
-  requiredPlayers: number;
-  players: Array<{ playerId: number; playerName: string; answer?: 'play_again' | 'had_enough' }>;
+  required: number;
+  players: Array<{ playerId: number; name: string; answer?: 'play_again' | 'had_enough' }>;
   roundStarted: boolean;
 }
 
@@ -57,9 +57,9 @@ export interface HealthResponse {
   status: 'ok' | 'degraded';
   timestamp: string;
   uptime: string;
-  gameCount: number;
-  invitationCount: number;
-  maxGamesReached: boolean;
+  games: number;
+  inviteCount: number;
+  maxReached: boolean;
   version: string;
   contractVersion: string;
 }
@@ -130,7 +130,7 @@ export class ApiClient {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ playerName, clientUrl, playerCount })
+      body: JSON.stringify({ name: playerName, clientUrl, playerCount })
     });
 
     if (!response.ok) {
@@ -149,7 +149,7 @@ export class ApiClient {
     const response = await this.fetchWithTimeout(`${this.baseUrl}/api/v1/hot-seat/games`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ firstPlayerName, secondPlayerName })
+      body: JSON.stringify({ firstName: firstPlayerName, secondName: secondPlayerName })
     });
 
     if (!response.ok) {
@@ -166,7 +166,7 @@ export class ApiClient {
     inviteCode: string,
     playerName: string
   ): Promise<AcceptInvitationResponse> {
-    const body = { inviteCode, playerName };
+    const body = { inviteCode, name: playerName };
 
     const response = await this.fetchWithTimeout(
       `${this.baseUrl}/api/v1/invitations/accept`,
