@@ -484,14 +484,17 @@ describe('GameManager', () => {
     it('returns accurate game count', () => {
       const stats1 = gameManager.getStats();
       expect(stats1.games).toBe(0);
+      expect(stats1.gamesEverStarted).toBe(0);
 
       gameManager.createGame('Alice');
       const stats2 = gameManager.getStats();
       expect(stats2.games).toBe(1);
+      expect(stats2.gamesEverStarted).toBe(1);
 
       gameManager.createGame('Bob');
       const stats3 = gameManager.getStats();
       expect(stats3.games).toBe(2);
+      expect(stats3.gamesEverStarted).toBe(2);
     });
 
     it('counts only pending invitations', () => {
@@ -499,12 +502,12 @@ describe('GameManager', () => {
       if ('error' in created) throw new Error('Should create game');
 
       let stats = gameManager.getStats();
-      expect(stats.inviteCount).toBe(1);
+      expect(stats.invites).toBe(1);
 
       // Accept the invitation
       gameManager.acceptInvitation(created.inviteCode, 'Bob');
       stats = gameManager.getStats();
-      expect(stats.inviteCount).toBe(0); // Invitation accepted
+      expect(stats.invites).toBe(0); // Invitation accepted
     });
   });
 });

@@ -87,7 +87,8 @@ export function createApiRouter(game: GameManager): Router {
       timestamp: timestamp.toISOString(),
       uptime: formatUptime(uptime),
       games: stats.games,
-      inviteCount: stats.inviteCount,
+      invites: stats.invites,
+      gamesEverStarted: stats.gamesEverStarted,
       maxReached: stats.maxReached,
       version: SERVER_VERSION,
       contractVersion: CONTRACT_VERSION

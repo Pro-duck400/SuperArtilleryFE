@@ -57,6 +57,7 @@ export class GameManager {
   private readonly gameRules: GameRules;
   private readonly timerScheduler: TimerScheduler;
   private cleanupInterval: NodeJS.Timeout | null = null;
+  private gamesEverStarted: number = 0;
 
   // Configuration
   constructor(
@@ -111,6 +112,8 @@ export class GameManager {
         code: GameManager.ERROR_CODES.MAX_GAMES_REACHED
       };
     }
+
+    this.gamesEverStarted++;
 
     return this.invitationService.createGame(playerName, clientOrigin, serverOrigin, Date.now(), playerCount);
   }
@@ -735,19 +738,21 @@ export class GameManager {
    */
   public getStats(): {
     games: number;
-    inviteCount: number;
+    invites: number;
+    gamesEverStarted: number;
     maxReached: boolean;
   } {
-    let inviteCount = 0;
+    let invites = 0;
     for (const game of this.games.values()) {
       if (game.status === 'pending' && !game.waitingSkipped && (!game.invitation.accepted || game.playerCount > 2)) {
-        inviteCount++;
+        invites++;
       }
     }
 
     return {
       games: this.games.size,
-      inviteCount,
+      invites: invites,
+      gamesEverStarted: this.gamesEverStarted,
       maxReached: this.games.size >= GAME_CONFIG.maxActiveGames
     };
   }

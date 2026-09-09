@@ -3,7 +3,7 @@ import type { ShotHistoryEntry } from './game';
 
 export interface LobbySlotView {
   playerId: number;
-  playerName?: string;
+  name?: string;
   status: 'waiting' | 'ready' | 'skipped';
 }
 
@@ -340,7 +340,7 @@ export class UIManager {
   }
 
   public setRosterNames(
-    players: Array<{ playerId: number; playerName: string; active: boolean }>,
+    players: Array<{ playerId: number; name: string; active: boolean }>,
     positions: Map<number, { x: number; y: number }>
   ): void {
     if (!this.playerNameRoster) return;
@@ -349,7 +349,7 @@ export class UIManager {
       const element = document.createElement('div');
       element.className = 'player-name-overlay player-name-connected';
       element.dataset.playerId = String(player.playerId);
-      element.textContent = player.playerName;
+      element.textContent = player.name;
       if (!player.active) element.classList.add('player-name-eliminated');
       this.positionPlayerName(element, positions.get(player.playerId) ?? { x: 0, y: 0 });
       this.playerNameRoster!.appendChild(element);
@@ -442,7 +442,7 @@ export class UIManager {
         ? 'Waiting...'
         : slot.status === 'skipped'
           ? 'Skipped'
-          : `${slot.playerName ?? 'Player'} is ready`;
+          : `${slot.name ?? 'Player'} is ready`;
       this.lobbySlots.appendChild(item);
     });
     this.skipWaitingButton.hidden = !canSkipWaiting;

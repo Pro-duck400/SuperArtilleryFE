@@ -164,11 +164,11 @@ export class InvitationService {
       if (!url.pathname.endsWith('/')) {
         url.pathname = `${url.pathname}/`;
       }
-      url.searchParams.set('invite', inviteCode);
       url.searchParams.set('server', serverOrigin);
+      url.searchParams.set('invite', inviteCode);
       return url.toString();
     } catch {
-      return `${base.endsWith('/') ? base : `${base}/`}?invite=${encodeURIComponent(inviteCode)}&server=${encodeURIComponent(serverOrigin)}`;
+      return `${base.endsWith('/') ? base : `${base}/`}?server=${encodeURIComponent(serverOrigin)}&invite=${encodeURIComponent(inviteCode)}`;
     }
   }
 

@@ -118,7 +118,8 @@ export interface HealthResponse {
   timestamp: string;
   uptime: string;
   games: number;
-  inviteCount: number;
+  invites: number;
+  gamesEverStarted: number;
   maxReached: boolean;
   version: string;
   contractVersion: string;

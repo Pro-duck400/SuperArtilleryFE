@@ -1,16 +1,13 @@
-1. Lobby list of players doesn't update with every player joining. 
-The player creating the game has "Skip waiting for player" always grayed out.
+1. Skipping some players in loggy shows cross out Players on battlefield.
 2. The most left and most right players still have their "Direction:" control enabled and visible,
  even though it has no effect for them.
 3. "Direction:" values "Left"/"Right" are not clear enought for the players. 
 Change them to "Shoot↖️" and "Shoot↗️"? Display direction in Fire button?
-4. 80% of casle size for hitting -> increase to 90%.
-5. Rematch bug - the one choosing [I had enough] remains frozen (needs some UI update). 
+4. Rematch bug - the one choosing [I had enough] remains frozen (needs some UI update). 
 Another one which chosen [Play again] remains, doesn't take turn. Suggesting that server sends turn message to wrong player.
-6. Rematch players list isn't formatted properly. Player number is on the left side, then very large gap before the player 
-status (emoji) then player name.
-7. Feature: count frags for each player and display it in the UI. E.g. "Alex +1". Frags kept on client side. 
+5. Rematch players list isn't formatted properly. Player number is on the left side, then very large gap before the player 
+tatus (emoji) then player name.
+6. Feature: count frags for each player and display it in the UI. E.g. "Alex +1". Frags kept on client side. 
 Keep accumulated with each rematch.
-8. Does game expired if players are connected? Maybe there should be hearbeat message from each player to keep it alive?
-
-
+7. Does game expired if players are connected? Maybe there should be hearbeat message from each player to keep it alive?
+8. Feature: server reports count of games ever created

@@ -120,7 +120,8 @@ describe('API routes', () => {
     expect(response.body).toMatchObject({
       status: 'ok',
       games: expect.any(Number),
-      inviteCount: expect.any(Number),
+      invites: expect.any(Number),
+      gamesEverStarted: expect.any(Number),
       maxReached: expect.any(Boolean),
       timestamp: expect.any(String),
       uptime: expect.stringMatching(/^\d+\.\d{2}:\d{2}:\d{2}\.\d{3}$/),

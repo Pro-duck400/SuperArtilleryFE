@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SuperArtillery API
-  version: 1.4.0
+  version: 1.4.1
   description: Contract-first API specification for REST endpoints and server-to-client game messages.
 servers:
   - url: http://localhost:3000
@@ -655,7 +655,7 @@ components:
     HealthResponse:
       type: object
       additionalProperties: false
-      required: [status, timestamp, uptime, games, inviteCount, maxReached, version, contractVersion]
+      required: [status, timestamp, uptime, games, invites, gamesEverStarted, maxReached, version, contractVersion]
       properties:
         status:
           type: string
@@ -672,10 +672,14 @@ components:
           type: integer
           minimum: 0
           description: Number of active games
-        inviteCount:
+        invites:
           type: integer
           minimum: 0
           description: Number of pending invitations
+        gamesEverStarted:
+          type: integer
+          minimum: 0
+          description: Total number of games ever started on the server
         maxReached:
           type: boolean
           description: True if server is at maximum capacity

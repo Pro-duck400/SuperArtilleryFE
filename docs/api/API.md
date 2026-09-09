@@ -39,7 +39,7 @@ Used by the client to detect a sleeping/cold-starting server before create/accep
 
 ---
 
-    "inviteUrl": "https://example.com/SuperArtillery/?invite=K7M4&server=https%3A%2F%2Fapi.example.com",
+    "inviteUrl": "https://example.com/SuperArtillery/?server=https%3A%2F%2Fapi.example.com&invite=K7M4",
 
 Creates a new private, two-player game in memory and returns tokens/links for the initiator to share.
 
@@ -53,7 +53,7 @@ Creates a new private, two-player game in memory and returns tokens/links for th
 
   **Payload:**
   ```json
-  { "playerName": "Alice", "clientUrl": "https://example.com/SuperArtillery/" }
+  { "name": "Alice", "clientUrl": "https://example.com/SuperArtillery/" }
   ```
 
   **Response `201`:**
@@ -61,7 +61,7 @@ Creates a new private, two-player game in memory and returns tokens/links for th
   {
     "gameId": "opaque-game-id",
     "playerToken": "opaque-session-token",
-    "inviteUrl": "https://example.com/SuperArtillery/?invite=K7M4&server=https%3A%2F%2Fapi.example.com",
+    "inviteUrl": "https://example.com/SuperArtillery/?server=https%3A%2F%2Fapi.example.com&invite=K7M4",
     "inviteCode": "K7M4"
   }
   ```
@@ -80,7 +80,7 @@ Creates a new private, two-player game in memory and returns tokens/links for th
 
   **Payload:**
   ```json
-  { "inviteCode": "K7M4", "playerName": "Bob" }
+  { "inviteCode": "K7M4", "name": "Bob" }
   ```
 
 **Errors:**

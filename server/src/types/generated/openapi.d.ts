@@ -665,7 +665,9 @@ export interface components {
             /** @description Number of active games */
             games: number;
             /** @description Number of pending invitations */
-            inviteCount: number;
+            invites: number;
+            /** @description Total number of games ever started on the server */
+            gamesEverStarted: number;
             /** @description True if server is at maximum capacity */
             maxReached: boolean;
             version: string;

@@ -74,7 +74,7 @@ let pendingRipPlayerIds: number[] = [];
 function refreshRosterPositions(): void {
   if (!game.getBattlefield()) return;
   uiManager.setRosterNames(
-    game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.name, active: player.active })),
+    game.getPlayers().map(player => ({ playerId: player.playerId, name: player.name, active: player.active })),
     new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
   );
 }
@@ -94,7 +94,7 @@ function schedulePendingRip(): void {
     renderer.setRIPPlayers(ripPlayerIds);
     renderer.render({ projectile: null, activeTrajectory, historicalTrajectories });
     uiManager.setRosterNames(
-      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.name, active: player.active })),
+      game.getPlayers().map(player => ({ playerId: player.playerId, name: player.name, active: player.active })),
       new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
     );
   }, 1000);
@@ -186,7 +186,7 @@ function wireGameClientEvents(client: GameClient): void {
     uiManager.prepareForNewRound();
     renderer.applyBattlefield(battlefield);
     uiManager.setRosterNames(
-      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.name, active: player.active })),
+      game.getPlayers().map(player => ({ playerId: player.playerId, name: player.name, active: player.active })),
       new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
     );
     historicalTrajectories = [];
@@ -279,7 +279,7 @@ function wireGameClientEvents(client: GameClient): void {
     uiManager.renderShotHistory(inputHistory);
     uiManager.setShotInputs(inputHistory[0]);
     uiManager.setRosterNames(
-      game.getPlayers().map(player => ({ playerId: player.playerId, playerName: player.name, active: player.active || pendingDefeatedPlayerIds.includes(player.playerId) })),
+      game.getPlayers().map(player => ({ playerId: player.playerId, name: player.name, active: player.active || pendingDefeatedPlayerIds.includes(player.playerId) })),
       new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
     );
     uiManager.updateTurnUI(activePlayerId, isMyTurn);
