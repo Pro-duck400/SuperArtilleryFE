@@ -12,7 +12,7 @@ export interface RenderState {
 
 const ACTIVE_TRAJECTORY_COLOR = '#555555';
 const CASTLE_EMOJIS = [
-  '🏰', '🏯', '🏟️', '🏛️', '🛖', '🏚️', '🏠', '🏡', '🏢', '🏣', '🏤', '🏥', '🏦', '🏨', '🏩', '🏪', '🏫', '🏬', '🏭', '💒', '🗼', '⛪', '🗽', '🕌', '🛕', '🕍', '⛩️', '🕋', '⛺', '🎪'
+  '🏰', '🏯', '🏟️', '🏛️', '🛖', '🏚️', '🏠', '🏡', '🏦', '🏫', '💒', '🗼', '⛪', '🗽', '🕌', '🛕', '🕍', '🎪', '🏭'
 ] as const;
 
 export class Renderer {
@@ -22,10 +22,11 @@ export class Renderer {
   private castleWidth = 10;
   private castleHeight = 10;
   private battlefield: BattlefieldConfig | null = null;
-  private castleLeftByPlayerId: Record<0 | 1, number> = { 0: 20, 1: 260 };
-  private castleGlyphs: Record<0 | 1, string> = { 0: '🏰', 1: '🏯' };
-  private activeCastlePlayerId: 0 | 1 | null = null;
-  private defeatedCastlePlayerId: 0 | 1 | null = null;
+  private castleLeftByPlayerId: Record<number, number> = { 0: 20, 1: 260 };
+  private castleGlyphs: Record<number, string> = { 0: '🏰', 1: '🏯' };
+  private activeCastlePlayerId: number | null = null;
+  private defeatedCastlePlayerIds = new Set<number>();
+  private ripCastlePlayerIds = new Set<number>();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -105,10 +106,12 @@ export class Renderer {
     };
   }
 
-  public drawCastle(playerId: 0 | 1, leftX: number, isActive: boolean = false): void {
+  public drawCastle(playerId: number, leftX: number, isActive: boolean = false): void {
     const baseY = this.getCastleBaseY(leftX);
-    const glyph = this.defeatedCastlePlayerId === playerId
-      ? '💥'
+    const glyph = this.ripCastlePlayerIds.has(playerId)
+      ? '🪦'
+      : this.defeatedCastlePlayerIds.has(playerId)
+        ? '💥'
       : (this.castleGlyphs[playerId] ?? (playerId === 0 ? '🏰' : '🏯'));
     const fontSize = Math.max(10, Math.round(this.castleHeight * 1.7));
 
@@ -131,12 +134,13 @@ export class Renderer {
 
   public applyBattlefield(battlefield: BattlefieldConfig): void {
     this.battlefield = battlefield;
-    this.canvas.width = battlefield.canvasWidth;
-    this.canvas.height = battlefield.canvasHeight;
+    this.canvas.width = battlefield.width;
+    this.canvas.height = battlefield.height;
     this.groundY = battlefield.groundY;
-    this.castleWidth = battlefield.castleWidth;
-    this.castleHeight = battlefield.castleHeight;
-    this.defeatedCastlePlayerId = null;
+    this.castleWidth = battlefield.castleW;
+    this.castleHeight = battlefield.castleH;
+    this.defeatedCastlePlayerIds.clear();
+    this.ripCastlePlayerIds.clear();
     this.randomizeCastleGlyphs();
 
     battlefield.castles.forEach((castle) => {
@@ -159,7 +163,7 @@ export class Renderer {
     return castle?.base_y ?? this.groundY;
   }
 
-  public getCastleTopY(playerId?: 0 | 1): number {
+  public getCastleTopY(playerId?: number): number {
     if (playerId !== undefined) {
       const castle = this.battlefield?.castles.find((item) => item.playerId === playerId);
       if (castle) return castle.base_y - this.castleHeight;
@@ -171,31 +175,46 @@ export class Renderer {
     return this.canvas.width;
   }
 
-  public getCastleMuzzleX(playerId: 0 | 1): number {
+  public getCastleMuzzleX(playerId: number): number {
     return this.castleLeftByPlayerId[playerId] + this.castleWidth / 2;
   }
 
-  public getCastleLabelPosition(playerId: 0 | 1): { x: number; y: number } {
+  public getCastleLabelPosition(playerId: number): { x: number; y: number } {
     const castle = this.battlefield?.castles.find((item) => item.playerId === playerId);
-    if (!castle) {
-      return { x: this.getCastleMuzzleX(playerId), y: this.groundY };
-    }
+    const bufferX = castle ? castle.left_x + this.castleWidth / 2 : this.getCastleMuzzleX(playerId);
+    const bufferY = castle ? castle.base_y + 4 : this.groundY;
+
+    // The canvas is drawn at a fixed buffer size but can be scaled down by CSS
+    // (max-width: 100%; height: auto), so labels must convert to displayed CSS pixels.
+    const scaleX = this.canvas.width ? this.canvas.clientWidth / this.canvas.width : 1;
+    const scaleY = this.canvas.height ? this.canvas.clientHeight / this.canvas.height : 1;
 
     return {
-      x: castle.left_x + this.castleWidth / 2,
-      y: castle.base_y + 4
+      x: bufferX * (scaleX || 1),
+      y: bufferY * (scaleY || 1)
     };
   }
 
   /**
    * Highlight the castle of the player whose turn it is (null clears the highlight)
    */
-  public setActiveTurn(playerId: 0 | 1 | null): void {
+  public setActiveTurn(playerId: number | null): void {
     this.activeCastlePlayerId = playerId;
   }
 
   public setDefeatedPlayer(playerId: 0 | 1 | null): void {
-    this.defeatedCastlePlayerId = playerId;
+    this.defeatedCastlePlayerIds.clear();
+    if (playerId !== null) this.defeatedCastlePlayerIds.add(playerId);
+  }
+
+  public setDefeatedPlayers(playerIds: number[]): void {
+    for (const playerId of playerIds) {
+      this.defeatedCastlePlayerIds.add(playerId);
+    }
+  }
+
+  public setRIPPlayers(playerIds: number[]): void {
+    for (const playerId of playerIds) this.ripCastlePlayerIds.add(playerId);
   }
 
   public drawProjectile(projectile: Projectile): void {
@@ -214,11 +233,11 @@ export class Renderer {
     this.ctx.setLineDash([2, 2]); // Dashed line
     this.ctx.beginPath();
     this.ctx.moveTo(trajectory[0].x, trajectory[0].y);
-    
+
     for (let i = 1; i < trajectory.length; i++) {
       this.ctx.lineTo(trajectory[i].x, trajectory[i].y);
     }
-    
+
     this.ctx.stroke();
     this.ctx.restore();
   }
@@ -245,8 +264,9 @@ export class Renderer {
     this.clear();
     this.drawWind();
     this.drawGround();
-    this.drawCastle(0, this.castleLeftByPlayerId[0], this.activeCastlePlayerId === 0);
-    this.drawCastle(1, this.castleLeftByPlayerId[1], this.activeCastlePlayerId === 1);
+    for (const castle of this.battlefield?.castles ?? []) {
+      this.drawCastle(castle.playerId, castle.left_x, this.activeCastlePlayerId === castle.playerId);
+    }
     this.drawHistoricalTrajectories(state.historicalTrajectories);
 
     // Draw trajectory first (so it appears behind the projectile)

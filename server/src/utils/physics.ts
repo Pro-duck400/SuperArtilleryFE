@@ -17,11 +17,11 @@ function checkCastleCollision(
   castleX: number, castleWidth: number, castleHeight: number,
   groundY: number
 ): number | null {
-  const CASTLE_HIT_ZONE_RATIO = 0.8;
+  const CASTLE_HIT_ZONE_RATIO = 0.9;
   const horizontalMargin = (castleWidth * (1 - CASTLE_HIT_ZONE_RATIO)) / 2;
   const verticalMargin = (castleHeight * (1 - CASTLE_HIT_ZONE_RATIO)) / 2;
 
-  // Require the projectile to enter the central 80% of the castle bounds.
+  // Require the projectile to enter the central 90% of the castle bounds.
   const left = castleX - castleWidth / 2 + horizontalMargin;
   const right = castleX + castleWidth / 2 - horizontalMargin;
   const top = groundY - castleHeight + verticalMargin;

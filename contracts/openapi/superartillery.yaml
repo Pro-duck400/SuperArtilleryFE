@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SuperArtillery API
-  version: 1.2.0
+  version: 1.4.1
   description: Contract-first API specification for REST endpoints and server-to-client game messages.
 servers:
   - url: http://localhost:3000
@@ -44,6 +44,42 @@ paths:
                 $ref: '#/components/schemas/CreateGameResponse'
         '400':
           description: Invalid player name
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/games/{gameId}/skip-waiting:
+    post:
+      tags: [Games]
+      summary: Start with currently connected players
+      description: Creator-only action that closes unfilled lobby slots and starts when at least two players are connected
+      parameters:
+        - name: gameId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: sessionToken
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Waiting players skipped
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkipWaitingResponse'
+        '400':
+          description: Skip is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid session token
           content:
             application/json:
               schema:
@@ -234,7 +270,35 @@ components:
   schemas:
     PlayerId:
       type: integer
-      enum: [0, 1]
+      minimum: 0
+      maximum: 8
+
+    LobbySlot:
+      type: object
+      additionalProperties: false
+      required: [playerId, status]
+      properties:
+        playerId:
+          $ref: '#/components/schemas/PlayerId'
+        name:
+          type: string
+        status:
+          type: string
+          enum: [waiting, ready, skipped]
+
+    PlayerState:
+      type: object
+      additionalProperties: false
+      required: [playerId, name, active, connected]
+      properties:
+        playerId:
+          $ref: '#/components/schemas/PlayerId'
+        name:
+          type: string
+        active:
+          type: boolean
+        connected:
+          type: boolean
 
     Position:
       type: object
@@ -261,11 +325,11 @@ components:
     Battlefield:
       type: object
       additionalProperties: false
-      required: [canvasWidth, canvasHeight, gravity, wind, groundY, castleWidth, castleHeight, castles, terrain]
+      required: [width, height, gravity, wind, groundY, castleW, castleH, castles, terrain]
       properties:
-        canvasWidth:
+        width:
           type: number
-        canvasHeight:
+        height:
           type: number
         gravity:
           type: number
@@ -276,14 +340,14 @@ components:
           description: Signed horizontal wind acceleration; negative blows left and positive blows right
         groundY:
           type: number
-        castleWidth:
+        castleW:
           type: number
-        castleHeight:
+        castleH:
           type: number
         castles:
           type: array
           minItems: 2
-          maxItems: 2
+          maxItems: 9
           items:
             $ref: '#/components/schemas/Castle'
         terrain:
@@ -316,19 +380,40 @@ components:
             hillHeight:
               type: number
               description: Signed cosine terrain variation; positive values create a crest, negative values create a depression, and zero produces a slope between the side elevations
+            extraHills:
+              type: array
+              description: Additional cosine hills/depressions summed on top of the main hill to vary terrain across wider battlefields
+              items:
+                type: object
+                additionalProperties: false
+                required: [hillCenter, hillWidth, hillHeight]
+                properties:
+                  hillCenter:
+                    type: number
+                  hillWidth:
+                    type: number
+                    exclusiveMinimum: 0
+                  hillHeight:
+                    type: number
 
     # Private Games Requests/Responses
 
     CreateGameRequest:
       type: object
       additionalProperties: false
-      required: [playerName]
+      required: [name]
       properties:
-        playerName:
+        name:
           type: string
           minLength: 1
           maxLength: 15
           description: Display name for the initiating player (15 chars max, must start with alphanumeric)
+        playerCount:
+          type: integer
+          minimum: 2
+          maximum: 9
+          default: 2
+          description: Number of player slots to reserve in the lobby
         clientUrl:
           type: string
           format: uri
@@ -354,17 +439,21 @@ components:
           minLength: 4
           maxLength: 4
           description: Short 4-character alphanumeric code (easy to type)
+        playerCount:
+          type: integer
+          minimum: 2
+          maximum: 9
 
     CreateHotSeatRequest:
       type: object
       additionalProperties: false
-      required: [firstPlayerName, secondPlayerName]
+      required: [firstName, secondName]
       properties:
-        firstPlayerName:
+        firstName:
           type: string
           minLength: 1
           maxLength: 15
-        secondPlayerName:
+        secondName:
           type: string
           minLength: 1
           maxLength: 15
@@ -372,11 +461,11 @@ components:
     HotSeatPlayer:
       type: object
       additionalProperties: false
-      required: [playerId, playerName, playerToken]
+      required: [playerId, name, playerToken]
       properties:
         playerId:
           $ref: '#/components/schemas/PlayerId'
-        playerName:
+        name:
           type: string
         playerToken:
           type: string
@@ -398,14 +487,14 @@ components:
     AcceptInvitationRequest:
       type: object
       additionalProperties: false
-      required: [playerName]
+      required: [name]
       properties:
         inviteCode:
           type: string
           minLength: 4
           maxLength: 4
           description: Short invite code from the invitation link or displayed code
-        playerName:
+        name:
           type: string
           minLength: 1
           maxLength: 15
@@ -414,7 +503,7 @@ components:
     AcceptInvitationResponse:
       type: object
       additionalProperties: false
-      required: [gameId, playerToken]
+      required: [gameId, playerToken, playerId]
       properties:
         gameId:
           type: string
@@ -422,11 +511,13 @@ components:
         playerToken:
           type: string
           description: Session token for this player (high entropy, one-time)
+        playerId:
+          $ref: '#/components/schemas/PlayerId'
 
     GameStatusResponse:
       type: object
       additionalProperties: false
-      required: [status, playersConnected, requiredPlayers, rematchReady, rematchPlayersReady]
+      required: [status, playersConnected, required, ready, readyCount, slots, canSkipWaiting]
       properties:
         status:
           type: string
@@ -435,39 +526,91 @@ components:
         playersConnected:
           type: integer
           minimum: 0
-          maximum: 2
+          maximum: 9
           description: Number of players currently connected via WebSocket
-        requiredPlayers:
+        required:
           type: integer
-          const: 2
+          minimum: 2
+          maximum: 9
           description: Required number of players for the game to start
-        rematchReady:
+        slots:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/LobbySlot'
+        canSkipWaiting:
+          type: boolean
+          description: Whether the authenticated creator can start with connected players
+        ready:
           type: boolean
           description: Whether the authenticated player has requested another round
-        rematchPlayersReady:
+        readyCount:
           type: integer
           minimum: 0
-          maximum: 2
+          maximum: 9
           description: Number of players who have requested another round
 
     RematchResponse:
       type: object
       additionalProperties: false
-      required: [ready, playersReady, requiredPlayers, roundStarted]
+      required: [answer, playersAnswered, required, players, roundStarted]
       properties:
-        ready:
-          type: boolean
-          description: Whether the authenticated player is ready for another round
-        playersReady:
+        answer:
+          type: string
+          enum: [play_again, had_enough, not_sure]
+        playersAnswered:
           type: integer
           minimum: 0
-          maximum: 2
-        requiredPlayers:
+          maximum: 9
+        required:
           type: integer
-          const: 2
+          minimum: 2
+          maximum: 9
         roundStarted:
           type: boolean
-          description: Whether both players were ready and a new round started
+          description: Whether every player chose play_again and a new round started
+        players:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/RematchPlayerStatus'
+
+    RematchPlayerStatus:
+      type: object
+      additionalProperties: false
+      required: [playerId, name]
+      properties:
+        playerId:
+          $ref: '#/components/schemas/PlayerId'
+        name:
+          type: string
+        answer:
+          type: string
+          enum: [play_again, had_enough, not_sure]
+
+    SkipWaitingResponse:
+      type: object
+      additionalProperties: false
+      required: [started, playersConnected, required, slots]
+      properties:
+        started:
+          type: boolean
+        playersConnected:
+          type: integer
+          minimum: 2
+          maximum: 9
+        required:
+          type: integer
+          minimum: 2
+          maximum: 9
+        slots:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/LobbySlot'
 
     FireRequest:
       type: object
@@ -487,6 +630,11 @@ components:
           minimum: 30
           maximum: 999
           description: Projectile velocity
+        direction:
+          type: string
+          enum: [Left, Right]
+          default: Left
+          description: Horizontal firing direction for castles that are not at a battlefield edge
 
     ErrorResponse:
       type: object
@@ -507,7 +655,7 @@ components:
     HealthResponse:
       type: object
       additionalProperties: false
-      required: [status, timestamp, uptime, gameCount, invitationCount, maxGamesReached, version, contractVersion]
+      required: [status, timestamp, uptime, games, invites, gamesEverStarted, maxReached, version, contractVersion]
       properties:
         status:
           type: string
@@ -520,15 +668,19 @@ components:
           type: string
           pattern: '^\\d+\\.\\d{2}:\\d{2}:\\d{2}\\.\\d{3}$'
           description: Server uptime formatted as D.HH:mm:ss.ggg
-        gameCount:
+        games:
           type: integer
           minimum: 0
           description: Number of active games
-        invitationCount:
+        invites:
           type: integer
           minimum: 0
           description: Number of pending invitations
-        maxGamesReached:
+        gamesEverStarted:
+          type: integer
+          minimum: 0
+          description: Total number of games ever started on the server
+        maxReached:
           type: boolean
           description: True if server is at maximum capacity
         version:
@@ -542,7 +694,7 @@ components:
     GameStartMessage:
       type: object
       additionalProperties: false
-      required: [type, gameId, opponentName, battlefield, round]
+      required: [type, gameId, players, battlefield, round]
       properties:
         type:
           type: string
@@ -550,9 +702,12 @@ components:
         gameId:
           type: string
           description: Opaque game ID
-        opponentName:
-          type: string
-          description: Display name of the opponent
+        players:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/PlayerState'
         battlefield:
           $ref: '#/components/schemas/Battlefield'
         round:
@@ -562,7 +717,7 @@ components:
     ShotMessage:
       type: object
       additionalProperties: false
-      required: [type, playerId, angle, velocity]
+      required: [type, playerId, angle, velocity, direction]
       properties:
         type:
           type: string
@@ -573,44 +728,66 @@ components:
           type: number
         velocity:
           type: number
+        direction:
+          type: string
+          enum: [Left, Right]
 
     TurnChangeMessage:
       type: object
       additionalProperties: false
-      required: [type, playerId_turn]
+      required: [type, turnId, players]
       properties:
         type:
           type: string
           const: turn_change
-        playerId_turn:
+        turnId:
           $ref: '#/components/schemas/PlayerId'
+        players:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/PlayerState'
 
     GameOverMessage:
       type: object
       additionalProperties: false
-      required: [type, playerId_winner]
+      required: [type, winnerId, players]
       properties:
         type:
           type: string
           const: game_over
-        playerId_winner:
+        winnerId:
           $ref: '#/components/schemas/PlayerId'
+        players:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/PlayerState'
 
     RematchStatusMessage:
       type: object
       additionalProperties: false
-      required: [type, playersReady, requiredPlayers]
+      required: [type, playersAnswered, required, players]
       properties:
         type:
           type: string
           const: rematch_status
-        playersReady:
+        playersAnswered:
           type: integer
           minimum: 0
-          maximum: 2
-        requiredPlayers:
+          maximum: 9
+        required:
           type: integer
-          const: 2
+          minimum: 2
+          maximum: 9
+        players:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/RematchPlayerStatus'
 
     WebSocketErrorMessage:
       type: object
@@ -631,6 +808,33 @@ components:
           additionalProperties: true
           description: Optional error context
 
+    LobbyStatusMessage:
+      type: object
+      additionalProperties: false
+      required: [type, status, playersConnected, required, slots]
+      description: Real-time push of lobby roster/connection changes while a game is still pending, so clients no longer need to poll GET /games/{gameId}/status
+      properties:
+        type:
+          type: string
+          const: lobby_status
+        status:
+          type: string
+          enum: [pending, active, finished, expired]
+        playersConnected:
+          type: integer
+          minimum: 0
+          maximum: 9
+        required:
+          type: integer
+          minimum: 2
+          maximum: 9
+        slots:
+          type: array
+          minItems: 2
+          maxItems: 9
+          items:
+            $ref: '#/components/schemas/LobbySlot'
+
     GameMessage:
       oneOf:
         - $ref: '#/components/schemas/GameStartMessage'
@@ -639,6 +843,7 @@ components:
         - $ref: '#/components/schemas/GameOverMessage'
         - $ref: '#/components/schemas/RematchStatusMessage'
         - $ref: '#/components/schemas/WebSocketErrorMessage'
+        - $ref: '#/components/schemas/LobbyStatusMessage'
       discriminator:
         propertyName: type
         mapping:
@@ -648,3 +853,4 @@ components:
           game_over: '#/components/schemas/GameOverMessage'
           rematch_status: '#/components/schemas/RematchStatusMessage'
           error: '#/components/schemas/WebSocketErrorMessage'
+          lobby_status: '#/components/schemas/LobbyStatusMessage'

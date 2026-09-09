@@ -1,2 +1,2 @@
 // Generated from contracts/openapi/superartillery.yaml. Do not edit manually.
-export const CONTRACT_VERSION = "1.2.0";
+export const CONTRACT_VERSION = "1.4.1";

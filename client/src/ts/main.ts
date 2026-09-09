@@ -67,23 +67,69 @@ let activeShotIsLocal = false;
 let animationActive = false;
 let pendingVisualTurn: { playerId: 0 | 1; isMyTurn: boolean } | null = null;
 let pendingGameOver: { didIWin: boolean } | null = null;
-let pendingDefeatedPlayerId: 0 | 1 | null = null;
-let rematchRequested = false;
+let pendingDefeatedPlayerIds: number[] = [];
+let pendingHitName: string | null = null;
+let pendingRipPlayerIds: number[] = [];
+
+function refreshRosterPositions(): void {
+  if (!game.getBattlefield()) return;
+  uiManager.setRosterNames(
+    game.getPlayers().map(player => ({ playerId: player.playerId, name: player.name, active: player.active })),
+    new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
+  );
+}
+
+// Browser zoom/viewport changes can change the canvas's displayed CSS size
+// without re-triggering game events, so name labels must be recomputed.
+window.addEventListener('resize', refreshRosterPositions);
+if (typeof ResizeObserver !== 'undefined') {
+  new ResizeObserver(refreshRosterPositions).observe(canvas);
+}
+
+function schedulePendingRip(): void {
+  if (pendingRipPlayerIds.length === 0) return;
+  const ripPlayerIds = [...pendingRipPlayerIds];
+  pendingRipPlayerIds = [];
+  window.setTimeout(() => {
+    renderer.setRIPPlayers(ripPlayerIds);
+    renderer.render({ projectile: null, activeTrajectory, historicalTrajectories });
+    uiManager.setRosterNames(
+      game.getPlayers().map(player => ({ playerId: player.playerId, name: player.name, active: player.active })),
+      new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
+    );
+  }, 1000);
+}
 
 function applyPendingPresentation(): void {
   if (animationActive) return;
 
   if (pendingGameOver) {
-    const result = pendingGameOver;
     pendingGameOver = null;
     pendingVisualTurn = null;
-    if (pendingDefeatedPlayerId !== null) {
-      renderer.setDefeatedPlayer(pendingDefeatedPlayerId);
-      pendingDefeatedPlayerId = null;
+    if (pendingDefeatedPlayerIds.length > 0) {
+      renderer.setDefeatedPlayers(pendingDefeatedPlayerIds);
+      pendingDefeatedPlayerIds = [];
       renderer.render({ projectile: null, activeTrajectory, historicalTrajectories });
     }
-    uiManager.showGameOver(result.didIWin, clientName, opponentName);
+    schedulePendingRip();
+    const winnerName = game.getPlayers().find(player => player.active)?.name ?? 'Unknown player';
+    uiManager.showGameOver(winnerName);
     return;
+  }
+
+  if (pendingDefeatedPlayerIds.length > 0) {
+    renderer.setDefeatedPlayers(pendingDefeatedPlayerIds);
+    pendingDefeatedPlayerIds = [];
+    renderer.render({ projectile: null, activeTrajectory, historicalTrajectories });
+  }
+
+  if (pendingHitName && !pendingVisualTurn) {
+    uiManager.setMessage(`${pendingHitName} hit`);
+    pendingHitName = null;
+  }
+
+  if (pendingRipPlayerIds.length > 0) {
+    schedulePendingRip();
   }
 
   if (pendingVisualTurn) {
@@ -92,10 +138,15 @@ function applyPendingPresentation(): void {
     renderer.setActiveTurn(turn.playerId);
     renderer.render({ projectile: null, activeTrajectory, historicalTrajectories });
     const localNames = game.isHotSeat() ? hotSeatNames : null;
+    const rosterPlayerName = game.getPlayers().find(player => player.playerId === turn.playerId)?.name;
     const turnPlayerName = localNames
       ? localNames[turn.playerId]
-      : (turn.isMyTurn ? clientName : opponentName);
-    uiManager.setMessage(`${turnPlayerName} turn`);
+      : (rosterPlayerName ?? (turn.isMyTurn ? clientName : opponentName));
+    const hitName = pendingHitName;
+    uiManager.setMessage(hitName
+      ? `${hitName} hit. ${turnPlayerName} turn`
+      : `${turnPlayerName} turn`);
+    pendingHitName = null;
   }
 }
 
@@ -122,18 +173,31 @@ animator.onComplete(() => {
 });
 
 function wireGameClientEvents(client: GameClient): void {
+  client.onLobbyStatus((status) => {
+    if (status.status === 'pending') {
+      uiManager.showLobbyStatus(status.slots, status.canSkipWaiting);
+      uiManager.setMessage(`${status.playersConnected}/${status.required} players connected`);
+    }
+  });
+
   client.onGameStart((_gameId: string, battlefield) => {
-    rematchRequested = false;
+    uiManager.hideLobbyStatus();
     renderer.setDefeatedPlayer(null);
     uiManager.prepareForNewRound();
     renderer.applyBattlefield(battlefield);
+    uiManager.setRosterNames(
+      game.getPlayers().map(player => ({ playerId: player.playerId, name: player.name, active: player.active })),
+      new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
+    );
     historicalTrajectories = [];
     activeTrajectory = [];
     activeShotIsLocal = false;
     animationActive = false;
     pendingVisualTurn = null;
     pendingGameOver = null;
-    pendingDefeatedPlayerId = null;
+    pendingDefeatedPlayerIds = [];
+    pendingHitName = null;
+    pendingRipPlayerIds = [];
     uiManager.setWindLabel(battlefield.wind);
     animator.configureScene(
       renderer.getCanvasWidth(),
@@ -144,6 +208,13 @@ function wireGameClientEvents(client: GameClient): void {
     );
 
     const playerId = client.getPlayerId();
+    const castleIds = battlefield.castles.map(castle => castle.playerId);
+    uiManager.setDirectionVisible(
+      playerId !== null && castleIds.length > 2 && playerId !== Math.min(...castleIds) && playerId !== Math.max(...castleIds)
+    );
+    uiManager.setDirectionDefault(
+      playerId === Math.min(...castleIds) ? 'Right' : 'Left'
+    );
     // Get opponent name from GameStartMessage if available
     opponentName = '';
     const localNames = client.getLocalPlayerNames();
@@ -152,8 +223,10 @@ function wireGameClientEvents(client: GameClient): void {
       opponentName = localNames[1];
     }
     const lastGameStartMessage = client.getLastGameStartMessage();
-    if (lastGameStartMessage && typeof lastGameStartMessage.opponentName === 'string') {
-      opponentName = lastGameStartMessage.opponentName;
+    if (lastGameStartMessage) {
+      const localPlayerId = client.getPlayerId();
+      const opponent = lastGameStartMessage.players.find(player => player.playerId !== localPlayerId);
+      opponentName = opponent?.name ?? opponentName;
     }
 
     // Switch from the registration/lobby panel (invite info) to the battlefield now that the opponent has joined.
@@ -193,18 +266,22 @@ function wireGameClientEvents(client: GameClient): void {
       activeShotIsLocal = false;
     }
 
-    const shooterId = data.playerId === 0 ? 0 : 1;
+    const shooterId = data.playerId;
     const startX = renderer.getCastleMuzzleX(shooterId);
-    animator.fire(data.angle, data.velocity, startX, shooterId);
+    animator.fire(data.angle, data.velocity, startX, shooterId, data.direction);
   });
 
   client.onTurnChange((playerId: number, isMyTurn: boolean) => {
-    const activePlayerId = playerId as 0 | 1;
+    const activePlayerId = playerId;
     const inputHistory = game.isHotSeat()
       ? game.getShotHistoryForPlayer(activePlayerId)
       : game.getShotHistory();
     uiManager.renderShotHistory(inputHistory);
     uiManager.setShotInputs(inputHistory[0]);
+    uiManager.setRosterNames(
+      game.getPlayers().map(player => ({ playerId: player.playerId, name: player.name, active: player.active || pendingDefeatedPlayerIds.includes(player.playerId) })),
+      new Map(game.getPlayers().map(player => [player.playerId, renderer.getCastleLabelPosition(player.playerId)]))
+    );
     uiManager.updateTurnUI(activePlayerId, isMyTurn);
     pendingVisualTurn = { playerId: playerId as 0 | 1, isMyTurn };
     const localPlayerId = client.getPlayerId();
@@ -219,10 +296,17 @@ function wireGameClientEvents(client: GameClient): void {
     applyPendingPresentation();
   });
 
+  client.onPlayerHit((playerId, playerName) => {
+    pendingHitName = playerName;
+    pendingDefeatedPlayerIds.push(playerId);
+    pendingRipPlayerIds.push(playerId);
+  });
+
   client.onGameOver((winnerId: number, didIWin: boolean) => {
     uiManager.disableFireButton();
-    const defeatedPlayerId = winnerId === 0 ? 1 : 0;
-    pendingDefeatedPlayerId = defeatedPlayerId;
+    pendingDefeatedPlayerIds = game.getPlayers()
+      .filter(player => !player.active)
+      .map(player => player.playerId);
     if (client.isHotSeat()) {
       const localNames = client.getLocalPlayerNames();
       if (localNames) {
@@ -237,14 +321,10 @@ function wireGameClientEvents(client: GameClient): void {
     applyPendingPresentation();
   });
 
-  client.onRematchStatus((playersReady) => {
-    if (rematchRequested) {
-      uiManager.setRematchWaiting(playersReady);
-      uiManager.setMessage(`Waiting for opponent (${playersReady}/2)`);
-    } else {
-      uiManager.showRematchAvailable();
-      uiManager.setMessage('Opponent wants to play again');
-    }
+  client.onRematchStatus((playersAnswered, requiredPlayers, players) => {
+    uiManager.renderRematchStatus(players);
+    uiManager.setRematchWaiting(playersAnswered);
+    uiManager.setMessage(`Rematch responses (${playersAnswered}/${requiredPlayers})`);
   });
 }
 
@@ -288,7 +368,9 @@ uiManager.onCreateGame(async (playerName: string, serverAddress: string) => {
     clientName = playerName;
     hotSeatNames = null;
     uiManager.showRegistering();
-    const createResult = await gameClient.createGame(playerName);
+    const playerCount = uiManager.getPlayerCount();
+    if (playerCount === null) return;
+    const createResult = await gameClient.createGame(playerName, playerCount);
     lobbyState.lastInviteUrl = createResult.inviteUrl;
     lobbyState.lastInviteCode = createResult.inviteCode;
     uiManager.showInviteInfo(createResult.inviteCode, createResult.inviteUrl);
@@ -303,6 +385,15 @@ uiManager.onCreateGame(async (playerName: string, serverAddress: string) => {
     }
     const errorMessage = error instanceof Error ? error.message : 'Game creation failed. Please try again.';
     uiManager.showRegistrationError(errorMessage);
+  }
+});
+
+uiManager.onSkipWaiting(async () => {
+  try {
+    if (!gameClient) throw new Error('Not connected yet');
+    await gameClient.skipWaiting();
+  } catch (error) {
+    uiManager.setMessage(error instanceof Error ? error.message : 'Unable to skip waiting players');
   }
 });
 
@@ -350,7 +441,7 @@ uiManager.onHotSeat(async (firstName: string, secondName: string, serverAddress:
   }
 });
 
-uiManager.onFire(async (angle: number, velocity: number) => {
+uiManager.onFire(async (angle: number, velocity: number, direction?: 'Left' | 'Right') => {
   try {
     if (!gameClient) {
       throw new Error('Not connected yet');
@@ -358,7 +449,7 @@ uiManager.onFire(async (angle: number, velocity: number) => {
 
     uiManager.disableFireButton();
     uiManager.setMessage('Firing...');
-    await gameClient.fire(angle, velocity);
+    await gameClient.fire(angle, velocity, direction);
     // Server will send WebSocket messages (shot + turn_change) to update state
   } catch (error) {
     console.error('Fire failed:', error);
@@ -368,20 +459,14 @@ uiManager.onFire(async (angle: number, velocity: number) => {
   }
 });
 
-uiManager.onRematch(async () => {
+uiManager.onRematchAnswer(async (answer) => {
   try {
-    if (!gameClient) {
-      throw new Error('Not connected yet');
-    }
-
-    rematchRequested = true;
-    uiManager.setRematchWaiting(1);
-    await gameClient.requestRematch();
+    if (!gameClient) throw new Error('Not connected yet');
+    uiManager.setRematchAnswerSubmitted();
+    await gameClient.requestRematch(answer);
   } catch (error) {
-    rematchRequested = false;
     uiManager.showRematchAvailable();
-    const errorMessage = error instanceof Error ? error.message : 'Rematch request failed';
-    uiManager.setMessage(errorMessage);
+    uiManager.setMessage(error instanceof Error ? error.message : 'Rematch response failed');
   }
 });
 

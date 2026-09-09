@@ -56,7 +56,7 @@ Contract source of truth:
 
 Supporting docs:
 
-- [docs/API.md](docs/API.md)
+- [docs/api/API.md](docs/api/API.md)
 - [docs/SuperArtillery.Apple\]\[.Basic](docs/SuperArtillery.Apple][.Basic)
 
 ## Common Commands

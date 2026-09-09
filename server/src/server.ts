@@ -44,7 +44,12 @@ const httpServer = createServer(app);
 const wss = new WebSocketServer({ server: httpServer });
 
 // Map to track connection metadata: gameId and playerId for each WebSocket
-const connectionMetadata = new WeakMap<WebSocket, { gameId: string; playerId: 0 | 1 }>();
+const connectionMetadata = new WeakMap<WebSocket, { gameId: string; playerId: number }>();
+
+function logWebSocketMessage(direction: 'sent' | 'received', message: unknown, playerName: string, gameId?: string): void {
+  const payload = typeof message === 'string' ? message : JSON.stringify(message);
+  console.log(`📡 WebSocket ${direction} player=${playerName} game=${gameId ?? 'unknown'} payload=${payload}`);
+}
 
 // Start HTTP server
 httpServer.listen(PORT, () => {
@@ -73,6 +78,7 @@ wss.on('connection', (ws: WebSocket, req) => {
         received: contractVersion
       }
     });
+    logWebSocketMessage('sent', errorMsg, 'unknown', gameId ?? undefined);
     ws.send(errorMsg);
     ws.close(1008, 'Contract version mismatch');
     return;
@@ -85,6 +91,7 @@ wss.on('connection', (ws: WebSocket, req) => {
       code: 'MISSING_AUTH',
       message: 'gameId and sessionToken are required'
     });
+    logWebSocketMessage('sent', errorMsg, 'unknown', gameId ?? undefined);
     ws.send(errorMsg);
     ws.close(1008, 'Missing authentication parameters');
     return;
@@ -100,17 +107,19 @@ wss.on('connection', (ws: WebSocket, req) => {
       code: result.code,
       message: result.error
     });
+    logWebSocketMessage('sent', errorMsg, 'unknown', gameId);
     ws.send(errorMsg);
     ws.close(1008, 'Authentication failed');
     return;
   }
 
   const playerId = result.playerId;
+  const playerName = game.getPlayerName(gameId, playerId) ?? `Player ${playerId + 1}`;
   
   // Store connection metadata
   connectionMetadata.set(ws, { gameId, playerId });
 
-  console.log(`✅ Player ${playerId} connected to game ${gameId}`);
+  console.log(`✅ Player ${playerId} (${playerName}) connected to game ${gameId}`);
 
   // Note: Clients don't send WebSocket messages - they use HTTP endpoints instead
   // WebSocket is used only for server -> client broadcasts (game_start, shot, turn_change, game_over)
@@ -120,10 +129,16 @@ wss.on('connection', (ws: WebSocket, req) => {
     const metadata = connectionMetadata.get(ws);
     if (metadata) {
       console.log(
-        `❌ Player ${metadata.playerId} disconnected from game ${metadata.gameId}`
+        `❌ Player ${metadata.playerId} (${game.getPlayerName(metadata.gameId, metadata.playerId) ?? `Player ${metadata.playerId + 1}`}) disconnected from game ${metadata.gameId}`
       );
       game.disconnectPlayer(metadata.gameId, metadata.playerId, ws);
     }
+  });
+
+  ws.on('message', (rawMessage) => {
+    const metadata = connectionMetadata.get(ws);
+    const playerName = metadata ? game.getPlayerName(metadata.gameId, metadata.playerId) ?? `Player ${metadata.playerId + 1}` : 'unknown';
+    logWebSocketMessage('received', rawMessage.toString(), playerName, metadata?.gameId);
   });
 
   // Handle errors

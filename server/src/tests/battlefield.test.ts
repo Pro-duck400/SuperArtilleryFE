@@ -16,7 +16,7 @@ describe('battlefield generation', () => {
 
     for (const castle of battlefield.castles) {
       expect(castle.base_y).toBe(
-        getTerrainY(battlefield, castle.left_x + battlefield.castleWidth / 2)
+        getTerrainY(battlefield, castle.left_x + battlefield.castleW / 2)
       );
     }
   });
@@ -49,11 +49,11 @@ describe('battlefield generation', () => {
     expect(getTerrainY(first, 0)).toBe(first.terrain.leftY);
     expect(getTerrainY(first, leftEdge)).toBe(first.terrain.leftY);
     expect(getTerrainY(first, rightEdge)).toBe(first.terrain.rightY);
-    expect(getTerrainY(first, first.canvasWidth)).toBe(first.terrain.rightY);
+    expect(getTerrainY(first, first.width)).toBe(first.terrain.rightY);
     expect(first.terrain.hillHeight).toBeGreaterThanOrEqual(-65);
     expect(first.terrain.hillHeight).toBeLessThanOrEqual(65);
-    expect(getTerrainY(first, first.canvasWidth)).toBeGreaterThanOrEqual(first.terrain.minY);
-    expect(getTerrainY(first, first.canvasWidth)).toBeLessThanOrEqual(first.terrain.maxY);
+    expect(getTerrainY(first, first.width)).toBeGreaterThanOrEqual(first.terrain.minY);
+    expect(getTerrainY(first, first.width)).toBeLessThanOrEqual(first.terrain.maxY);
   });
 
   it('can generate both a crest and a depression from different seeds', () => {
@@ -64,6 +64,6 @@ describe('battlefield generation', () => {
 
     expect(samples.some(({ terrain }) => terrain.hillHeight > 0)).toBe(true);
     expect(samples.some(({ terrain }) => terrain.hillHeight < 0)).toBe(true);
-    expect(samples.some(({ terrain }) => terrain.hillHeight === 0)).toBe(true);
+    expect(samples.every(({ terrain }) => terrain.hillHeight !== 0)).toBe(true);
   });
 });

@@ -20,11 +20,15 @@ export class InvitationService {
     playerName: string,
     clientOrigin: string,
     serverOrigin: string = 'http://localhost:3000',
-    now: number = Date.now()
+    now: number = Date.now(),
+    playerCount: number = 2
   ): InvitationResult<CreateGameResponse> {
     const normalizedName = TokenService.normalizeName(playerName);
     if (!normalizedName) {
       return this.error('INVALID_PLAYER_NAME');
+    }
+    if (!Number.isInteger(playerCount) || playerCount < 2 || playerCount > 9) {
+      return this.error('INVALID_PLAYER_COUNT');
     }
 
     const gameId = TokenService.generateGameId();
@@ -44,6 +48,8 @@ export class InvitationService {
         expiresAt,
         accepted: false
       },
+      playerCount,
+      lobbySlots: [],
       initiator: {
         name: normalizedName,
         sessionTokenHash: TokenService.hashToken(sessionToken),
@@ -60,6 +66,21 @@ export class InvitationService {
       rematchReady: [false, false]
     };
 
+    game.lobbySlots = [
+      { playerId: 0, session: game.initiator, status: 'waiting', active: true, eliminated: false },
+      ...Array.from({ length: playerCount - 1 }, (_, index) => ({
+        playerId: index + 1,
+        session: index === 0 ? game.invited : {
+          name: null,
+          sessionTokenHash: '',
+          websocket: null
+        },
+        status: 'waiting' as const,
+        active: true,
+        eliminated: false
+      }))
+    ];
+
     this.games.set(game);
 
     return {
@@ -67,6 +88,7 @@ export class InvitationService {
       playerToken: sessionToken,
       inviteUrl: this.createInviteUrl(clientOrigin || this.defaultClientOrigin, inviteCode, serverOrigin),
       inviteCode
+      ,playerCount
     };
   }
 
@@ -89,10 +111,6 @@ export class InvitationService {
       return this.error('INVALID_INVITATION');
     }
 
-    if (game.invitation.accepted) {
-      return this.error('INVITATION_ALREADY_ACCEPTED');
-    }
-
     if (game.invitation.expiresAt < now) {
       game.status = 'expired';
       return this.error('INVITATION_EXPIRED');
@@ -102,14 +120,24 @@ export class InvitationService {
       return this.error('GAME_UNAVAILABLE');
     }
 
+    const slot = game.lobbySlots.find(candidate => candidate.session.name === null && candidate.status === 'waiting');
+    if (!slot) {
+      return this.error(game.playerCount === 2 ? 'INVITATION_ALREADY_ACCEPTED' : 'LOBBY_FULL');
+    }
+
     const sessionToken = TokenService.generateSessionToken();
     game.invitation.accepted = true;
-    game.invited.name = normalizedName;
-    game.invited.sessionTokenHash = TokenService.hashToken(sessionToken);
+    slot.session.name = normalizedName;
+    slot.session.sessionTokenHash = TokenService.hashToken(sessionToken);
+
+    if (slot.playerId === 1) {
+      game.invited = slot.session;
+    }
 
     return {
       gameId: game.id,
-      playerToken: sessionToken
+      playerToken: sessionToken,
+      playerId: slot.playerId
     };
   }
 
@@ -136,11 +164,11 @@ export class InvitationService {
       if (!url.pathname.endsWith('/')) {
         url.pathname = `${url.pathname}/`;
       }
-      url.searchParams.set('invite', inviteCode);
       url.searchParams.set('server', serverOrigin);
+      url.searchParams.set('invite', inviteCode);
       return url.toString();
     } catch {
-      return `${base.endsWith('/') ? base : `${base}/`}?invite=${encodeURIComponent(inviteCode)}&server=${encodeURIComponent(serverOrigin)}`;
+      return `${base.endsWith('/') ? base : `${base}/`}?server=${encodeURIComponent(serverOrigin)}&invite=${encodeURIComponent(inviteCode)}`;
     }
   }
 

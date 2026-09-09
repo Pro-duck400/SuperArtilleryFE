@@ -24,7 +24,18 @@ export interface Invitation {
   inviteCode: string; // 4-char alphanumeric code (user-typeable)
   inviteCodeHash: string; // Hash of the invite code for verification
   expiresAt: number; // Timestamp in ms when invitation expires
-  accepted: boolean; // Track one-time acceptance
+  accepted: boolean; // Backward-compatible indicator that at least one invite was accepted
+}
+
+export type LobbySlotStatus = 'waiting' | 'ready' | 'skipped';
+export type RematchAnswer = 'play_again' | 'had_enough' | 'not_sure';
+
+export interface LobbySlot {
+  playerId: number;
+  session: PlayerSession;
+  status: LobbySlotStatus;
+  active: boolean;
+  eliminated: boolean;
 }
 
 /**
@@ -41,16 +52,20 @@ export interface PrivateGame {
   // Invitation details
   invitation: Invitation;
   hotSeat?: boolean;
+  playerCount: number;
+  lobbySlots: LobbySlot[];
+  waitingSkipped?: boolean;
   
   // Player sessions
   initiator: PlayerSession;
   invited: PlayerSession;
   
   // Game state
-  currentTurn: 0 | 1;
+  currentTurn: number;
   gameStarted: boolean;
   round: number;
-  rematchReady: [boolean, boolean];
+  rematchReady: boolean[];
+  rematchAnswers?: Array<RematchAnswer | null>;
   battlefield?: Battlefield;
   gameFinishedAt?: number; // Timestamp when game finished (for grace period)
 }
@@ -64,36 +79,48 @@ export interface CreateGameResponse {
   playerToken: string; // Only sent to initiator
   inviteUrl: string; // Full invitation link
   inviteCode: string; // 4-char short code
+  playerCount: number;
 }
 
 export interface AcceptInvitationResponse {
   gameId: string;
   playerToken: string; // Only sent to invited player
+  playerId: number;
 }
 
 export interface CreateHotSeatResponse {
   gameId: string;
   players: [
-    { playerId: 0; playerName: string; playerToken: string },
-    { playerId: 1; playerName: string; playerToken: string }
+    { playerId: 0; name: string; playerToken: string },
+    { playerId: 1; name: string; playerToken: string }
   ];
 }
 
 export interface GameStatusResponse {
   status: GameStatus;
   playersConnected: number;
-  requiredPlayers: 2;
-  rematchReady: boolean;
-  rematchPlayersReady: number;
+  required: number;
+  ready: boolean;
+  readyCount: number;
+  slots: Array<{ playerId: number; name?: string; status: LobbySlotStatus }>;
+  canSkipWaiting: boolean;
+}
+
+export interface SkipWaitingResponse {
+  started: boolean;
+  playersConnected: number;
+  required: number;
+  slots: Array<{ playerId: number; name?: string; status: LobbySlotStatus }>;
 }
 
 export interface HealthResponse {
   status: 'ok' | 'degraded';
   timestamp: string;
   uptime: string;
-  gameCount: number;
-  invitationCount: number;
-  maxGamesReached: boolean;
+  games: number;
+  invites: number;
+  gamesEverStarted: number;
+  maxReached: boolean;
   version: string;
   contractVersion: string;
 }

@@ -39,7 +39,7 @@ Used by the client to detect a sleeping/cold-starting server before create/accep
 
 ---
 
-    "inviteUrl": "https://example.com/SuperArtillery/?invite=K7M4&server=https%3A%2F%2Fapi.example.com",
+    "inviteUrl": "https://example.com/SuperArtillery/?server=https%3A%2F%2Fapi.example.com&invite=K7M4",
 
 Creates a new private, two-player game in memory and returns tokens/links for the initiator to share.
 
@@ -53,7 +53,7 @@ Creates a new private, two-player game in memory and returns tokens/links for th
 
   **Payload:**
   ```json
-  { "playerName": "Alice", "clientUrl": "https://example.com/SuperArtillery/" }
+  { "name": "Alice", "clientUrl": "https://example.com/SuperArtillery/" }
   ```
 
   **Response `201`:**
@@ -61,7 +61,7 @@ Creates a new private, two-player game in memory and returns tokens/links for th
   {
     "gameId": "opaque-game-id",
     "playerToken": "opaque-session-token",
-    "inviteUrl": "https://example.com/SuperArtillery/?invite=K7M4&server=https%3A%2F%2Fapi.example.com",
+    "inviteUrl": "https://example.com/SuperArtillery/?server=https%3A%2F%2Fapi.example.com&invite=K7M4",
     "inviteCode": "K7M4"
   }
   ```
@@ -80,7 +80,7 @@ Creates a new private, two-player game in memory and returns tokens/links for th
 
   **Payload:**
   ```json
-  { "inviteCode": "K7M4", "playerName": "Bob" }
+  { "inviteCode": "K7M4", "name": "Bob" }
   ```
 
 **Errors:**
@@ -92,7 +92,7 @@ Creates a new private, two-player game in memory and returns tokens/links for th
 ---
 ### Get Game Status
 
-Polls non-sensitive lobby state. Requires a valid session token.
+Fetches a one-time snapshot of non-sensitive lobby state. Requires a valid session token. Clients only need this for the very first render (e.g. on reconnect) — while a game is pending, the server pushes `lobby_status` over WebSocket on every roster change, so **polling this endpoint is no longer necessary**.
 
 **GET** `/api/v1/games/{gameId}/status?sessionToken=...`
 
@@ -101,7 +101,7 @@ Polls non-sensitive lobby state. Requires a valid session token.
 {
   "status": "pending" | "active" | "finished" | "expired",
   "playersConnected": 1,
-  "requiredPlayers": 2
+  "required": 2
 }
 ```
 
@@ -148,6 +148,21 @@ Sent to both players once both WebSocket connections are open.
   "gameId": "opaque-game-id",
   "opponentName": "Bob",
   "battlefield": { "...": "battlefield config (gravity, castles, etc.)" }
+}
+```
+
+#### Lobby Status
+Broadcast to every connected socket whenever the lobby roster changes (a player connects, disconnects, or the lobby expires) while the game is still `pending`. Replaces the need to poll `GET /games/{gameId}/status`.
+```json
+{
+  "type": "lobby_status",
+  "status": "pending",
+  "playersConnected": 1,
+  "required": 2,
+  "slots": [
+    { "playerId": 0, "name": "Alice", "status": "ready" },
+    { "playerId": 1, "status": "waiting" }
+  ]
 }
 ```
 
@@ -275,14 +290,14 @@ sequenceDiagram
     Note over C1,C2: Both players connect over WebSocket
     C1->>Server: WSS ?gameId=...&sessionToken=(Alice)
     C2->>Server: WSS ?gameId=...&sessionToken=(Bob)
+    Server->>C1: WS: lobby_status {playersConnected: 1, required: 2}
+    Server->>C2: WS: lobby_status {playersConnected: 2, required: 2}
     Server->>C1: WS: game_start {opponentName: "Bob", battlefield}
     Server->>C2: WS: game_start {opponentName: "Alice", battlefield}
     Server->>C1: WS: turn_change {playerId_turn: 0}
     Server->>C2: WS: turn_change {playerId_turn: 0}
 
-    Note over C1,C2: Optional lobby polling
-    C1->>Server: GET /api/v1/games/{gameId}/status?sessionToken=(Alice)
-    Server-->>C1: 200 OK {status: "active", playersConnected: 2, requiredPlayers: 2}
+    Note over C1,C2: No polling needed - lobby_status already pushed the roster above
 
     Note over C1,C2: Game Play - Turn 1
     C1->>Server: POST /api/v1/fire?sessionToken=(Alice)<br/>{gameId, angle: 45, velocity: 250}

@@ -35,13 +35,13 @@ function createContext(): CanvasRenderingContext2D & { strokeStyles: string[] } 
 }
 
 const battlefield = {
-  canvasWidth: 420,
-  canvasHeight: 240,
+  width: 420,
+  height: 240,
   gravity: 100,
   wind: 0,
   groundY: 140,
-  castleWidth: 10,
-  castleHeight: 10,
+  castleW: 10,
+  castleH: 10,
   castles: [
     { playerId: 0, left_x: 20, base_y: 140 },
     { playerId: 1, left_x: 250, base_y: 140 }
@@ -162,6 +162,21 @@ describe('Renderer trajectory styles', () => {
 
     renderer.render({ projectile: null, historicalTrajectories: [], activeTrajectory: [] });
 
+    expect(fillTextSpy).toHaveBeenCalledWith('💥', 244, 142);
+  });
+
+  it('keeps earlier RIP castles when a later player is defeated', () => {
+    const canvas = document.createElement('canvas');
+    const renderer = new Renderer(canvas);
+    renderer.applyBattlefield(battlefield);
+    renderer.setDefeatedPlayers([0]);
+    renderer.setRIPPlayers([0]);
+    renderer.setDefeatedPlayers([1]);
+    const fillTextSpy = vi.spyOn(context, 'fillText');
+
+    renderer.render({ projectile: null, historicalTrajectories: [], activeTrajectory: [] });
+
+    expect(fillTextSpy).toHaveBeenCalledWith('🪦', 14, 142);
     expect(fillTextSpy).toHaveBeenCalledWith('💥', 244, 142);
   });
 

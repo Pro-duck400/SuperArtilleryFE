@@ -1,6 +1,12 @@
 // Manages all DOM interactions and UI state
 import type { ShotHistoryEntry } from './game';
 
+export interface LobbySlotView {
+  playerId: number;
+  name?: string;
+  status: 'waiting' | 'ready' | 'skipped';
+}
+
 export class UIManager {
   // DOM elements
   private registrationPanel: HTMLDivElement;
@@ -18,6 +24,7 @@ export class UIManager {
   private gamePanel: HTMLDivElement;
   private windLabel: HTMLDivElement;
   private playerNameInput: HTMLInputElement;
+  private playerCountInput: HTMLInputElement;
   private serverAddressInput: HTMLInputElement;
   private serverAddressToggle: HTMLButtonElement;
   private serverAddressOptions: HTMLSpanElement;
@@ -32,6 +39,10 @@ export class UIManager {
   private inviteInput: HTMLInputElement;
   private inviteInputLabel: HTMLLabelElement;
   private registrationError: HTMLDivElement;
+  private lobbyStatus: HTMLDivElement;
+  private lobbySlots: HTMLOListElement;
+  private skipWaitingButton: HTMLButtonElement;
+  private playerNameRoster: HTMLDivElement | null;
   private inviteInfoEl: HTMLDivElement;
   private inviteCodeTextEl: HTMLSpanElement;
   private inviteUrlTextEl: HTMLSpanElement;
@@ -41,8 +52,14 @@ export class UIManager {
   private shotHistoryRowsEl: HTMLTableSectionElement;
   private angleInput: HTMLInputElement;
   private velocityInput: HTMLInputElement;
+  private directionInput: HTMLSelectElement | null;
+  private directionField: HTMLLabelElement | null;
   private fireButton: HTMLButtonElement;
   private rematchButton: HTMLButtonElement;
+  private rematchControls: HTMLDivElement | null;
+  private rematchPlayers: HTMLOListElement | null;
+  private playAgainButton: HTMLButtonElement | null;
+  private hadEnoughButton: HTMLButtonElement | null;
   private defaultServerAddress: string;
   private creatingGame = false;
   private lobbyMode: 'create' | 'join' = 'create';
@@ -54,8 +71,10 @@ export class UIManager {
   private onCreateGameCallback: ((name: string, serverAddress: string) => void) | null = null;
   private onJoinGameCallback: ((inviteCode: string, name: string, serverAddress: string) => void) | null = null;
   private onHotSeatCallback: ((firstName: string, secondName: string, serverAddress: string) => void) | null = null;
-  private onFireCallback: ((angle: number, velocity: number) => void) | null = null;
+  private onFireCallback: ((angle: number, velocity: number, direction?: 'Left' | 'Right') => void) | null = null;
   private onRematchCallback: (() => void) | null = null;
+  private onRematchAnswerCallback: ((answer: 'play_again' | 'had_enough') => void) | null = null;
+  private onSkipWaitingCallback: (() => void) | null = null;
 
   constructor(defaultServerAddress: string) {
     this.defaultServerAddress = defaultServerAddress;
@@ -75,6 +94,7 @@ export class UIManager {
     this.gamePanel = document.getElementById('gamePanel') as HTMLDivElement;
     this.windLabel = document.getElementById('windLabel') as HTMLDivElement;
     this.playerNameInput = document.getElementById('playerNameInput') as HTMLInputElement;
+    this.playerCountInput = document.getElementById('playerCountInput') as HTMLInputElement;
     this.serverAddressInput = document.getElementById('serverAddressInput') as HTMLInputElement;
     this.serverAddressToggle = document.getElementById('serverAddressToggle') as HTMLButtonElement;
     this.serverAddressOptions = document.getElementById('serverAddressOptions') as HTMLSpanElement;
@@ -89,6 +109,10 @@ export class UIManager {
     this.inviteInput = document.getElementById('inviteInput') as HTMLInputElement;
     this.inviteInputLabel = document.getElementById('inviteInputLabel') as HTMLLabelElement;
     this.registrationError = document.getElementById('registrationError') as HTMLDivElement;
+    this.lobbyStatus = document.getElementById('lobbyStatus') as HTMLDivElement;
+    this.lobbySlots = document.getElementById('lobbySlots') as HTMLOListElement;
+    this.skipWaitingButton = document.getElementById('skipWaitingButton') as HTMLButtonElement;
+    this.playerNameRoster = document.getElementById('playerNameRoster') as HTMLDivElement | null;
     this.inviteInfoEl = document.getElementById('inviteInfo') as HTMLDivElement;
     this.inviteCodeTextEl = document.getElementById('inviteCodeText') as HTMLSpanElement;
     this.inviteUrlTextEl = document.getElementById('inviteUrlText') as HTMLSpanElement;
@@ -98,9 +122,19 @@ export class UIManager {
     this.shotHistoryRowsEl = document.getElementById('shotHistoryRows') as HTMLTableSectionElement;
     this.angleInput = document.getElementById('angleInput') as HTMLInputElement;
     this.velocityInput = document.getElementById('velocityInput') as HTMLInputElement;
+    this.directionInput = document.getElementById('directionInput') as HTMLSelectElement | null;
+    this.directionField = document.getElementById('directionField') as HTMLLabelElement | null;
     this.fireButton = document.getElementById('fireButton') as HTMLButtonElement;
     this.rematchButton = document.getElementById('rematchButton') as HTMLButtonElement;
+    this.rematchControls = document.getElementById('rematchControls') as HTMLDivElement | null;
+    this.rematchPlayers = document.getElementById('rematchPlayers') as HTMLOListElement | null;
+    this.playAgainButton = document.getElementById('playAgainButton') as HTMLButtonElement | null;
+    this.hadEnoughButton = document.getElementById('hadEnoughButton') as HTMLButtonElement | null;
     this.serverAddressInput.value = defaultServerAddress;
+    this.lobbyModeToggle.textContent = 'Create';
+    this.lobbyModeOptions.querySelectorAll<HTMLElement>('[role="option"]').forEach((option) => {
+      option.setAttribute('aria-selected', String(option.dataset.mode === 'create'));
+    });
     this.updateLobbyVisibility();
 
     this.playerNameInput.maxLength = 15;
@@ -187,6 +221,8 @@ export class UIManager {
       const playerName = this.playerNameInput.value.trim();
       const serverAddress = this.serverAddressInput.value.trim() || this.defaultServerAddress;
       if (!this.validateName(playerName) || !this.validateServer(serverAddress)) return;
+      const playerCount = this.getPlayerCount();
+      if (playerCount === null) return;
       this.registrationError.textContent = '';
       this.onCreateGameCallback?.(playerName, serverAddress);
     };
@@ -236,13 +272,20 @@ export class UIManager {
       }
 
       if (this.onFireCallback) {
-        this.onFireCallback(angle, velocity);
+        if (this.directionField && !this.directionField.hidden) {
+          const direction = this.directionInput?.value === 'Right' ? 'Right' : 'Left';
+          this.onFireCallback(angle, velocity, direction);
+        } else {
+          this.onFireCallback(angle, velocity);
+        }
       }
     });
 
-    this.rematchButton.addEventListener('click', () => {
-      this.onRematchCallback?.();
-    });
+    this.rematchButton?.addEventListener('click', () => this.onRematchCallback?.());
+    this.playAgainButton?.addEventListener('click', () => this.onRematchAnswerCallback?.('play_again'));
+    this.hadEnoughButton?.addEventListener('click', () => this.onRematchAnswerCallback?.('had_enough'));
+
+    this.skipWaitingButton?.addEventListener('click', () => this.onSkipWaitingCallback?.());
 
     this.startHotSeatButton?.addEventListener('click', () => {
       const firstName = this.hotSeatPlayerOneInput?.value.trim() ?? '';
@@ -296,6 +339,23 @@ export class UIManager {
     }
   }
 
+  public setRosterNames(
+    players: Array<{ playerId: number; name: string; active: boolean }>,
+    positions: Map<number, { x: number; y: number }>
+  ): void {
+    if (!this.playerNameRoster) return;
+    this.playerNameRoster.replaceChildren();
+    players.forEach(player => {
+      const element = document.createElement('div');
+      element.className = 'player-name-overlay player-name-connected';
+      element.dataset.playerId = String(player.playerId);
+      element.textContent = player.name;
+      if (!player.active) element.classList.add('player-name-eliminated');
+      this.positionPlayerName(element, positions.get(player.playerId) ?? { x: 0, y: 0 });
+      this.playerNameRoster!.appendChild(element);
+    });
+  }
+
   private positionPlayerName(element: HTMLElement | null, position: { x: number; y: number }): void {
     if (!element) return;
     element.style.left = `${position.x}px`;
@@ -324,12 +384,75 @@ export class UIManager {
   /**
    * Register callback for fire event
    */
-  public onFire(callback: (angle: number, velocity: number) => void): void {
+  public onFire(callback: (angle: number, velocity: number, direction?: 'Left' | 'Right') => void): void {
     this.onFireCallback = callback;
+  }
+
+  public setDirectionVisible(visible: boolean): void {
+    if (this.directionField) this.directionField.hidden = !visible;
+  }
+
+  public setDirectionDefault(direction: 'Left' | 'Right'): void {
+    if (this.directionInput) this.directionInput.value = direction;
+  }
+
+  public getDirection(): 'Left' | 'Right' {
+    return this.directionInput?.value === 'Right' ? 'Right' : 'Left';
   }
 
   public onRematch(callback: () => void): void {
     this.onRematchCallback = callback;
+  }
+
+  public onRematchAnswer(callback: (answer: 'play_again' | 'had_enough') => void): void {
+    this.onRematchAnswerCallback = callback;
+  }
+
+  public renderRematchStatus(players: Array<{ playerId: number; playerName: string; answer?: 'play_again' | 'had_enough' | 'not_sure' }>): void {
+    if (!this.rematchPlayers) return;
+    this.rematchPlayers.replaceChildren();
+    players.forEach(player => {
+      const item = document.createElement('li');
+      item.textContent = `${player.playerName} ${player.answer === 'play_again' ? 'ready' : player.answer === 'had_enough' ? 'had enough' : 'not sure'}`;
+      this.rematchPlayers!.appendChild(item);
+    });
+  }
+
+  public onSkipWaiting(callback: () => void): void {
+    this.onSkipWaitingCallback = callback;
+  }
+
+  public getPlayerCount(): number | null {
+    if (!this.playerCountInput) return 2;
+    const playerCount = Number(this.playerCountInput.value);
+    if (!Number.isInteger(playerCount) || playerCount < 2 || playerCount > 9) {
+      this.registrationError.textContent = 'Players must be between 2 and 9';
+      return null;
+    }
+    return playerCount;
+  }
+
+  public showLobbyStatus(slots: LobbySlotView[], canSkipWaiting: boolean): void {
+    if (!this.lobbyStatus || !this.lobbySlots || !this.skipWaitingButton) return;
+    this.lobbyStatus.hidden = false;
+    this.lobbySlots.replaceChildren();
+    slots.forEach((slot) => {
+      const item = document.createElement('li');
+      item.textContent = slot.status === 'waiting'
+        ? 'Waiting...'
+        : slot.status === 'skipped'
+          ? 'Skipped'
+          : `${slot.name ?? 'Player'} is ready`;
+      this.lobbySlots.appendChild(item);
+    });
+    this.skipWaitingButton.hidden = !canSkipWaiting;
+    this.skipWaitingButton.disabled = !canSkipWaiting;
+  }
+
+  public hideLobbyStatus(): void {
+    if (!this.lobbyStatus || !this.skipWaitingButton) return;
+    this.lobbyStatus.hidden = true;
+    this.skipWaitingButton.hidden = true;
   }
 
   /**
@@ -482,7 +605,6 @@ export class UIManager {
   private updateLobbyVisibility(): void {
     if (this.joinOnlyMode) return;
     const joining = this.lobbyMode === 'join';
-    this.serverRow.hidden = !joining && this.createMode === 'device';
     this.joinGameRow.hidden = !joining;
     this.createGameRow.hidden = joining;
     this.internetGameRow.hidden = joining || this.createMode !== 'internet';
@@ -551,7 +673,7 @@ export class UIManager {
    * Update UI based on turn state and highlight current player's name
    * @param isMyTurn Whether it's this client's turn
    */
-  public updateTurnUI(currentTurn: 0 | 1, isMyTurn: boolean): void {
+  public updateTurnUI(currentTurn: number, isMyTurn: boolean): void {
     this.fireButton.disabled = !isMyTurn;
     if (isMyTurn) {
       this.angleInput.disabled = false;
@@ -561,7 +683,15 @@ export class UIManager {
       this.velocityInput.disabled = true;
     }
 
-    // Highlight only the player whose turn it is
+    if (this.playerNameRoster) {
+      this.playerNameRoster.querySelectorAll<HTMLElement>('[data-player-id]').forEach(element => {
+        element.classList.toggle('player-name-active-turn', element.dataset.playerId === String(currentTurn));
+      });
+      if (isMyTurn) this.angleInput.focus();
+      return;
+    }
+
+    // Highlight only the player whose turn it is in the legacy two-label view.
       const leftNameEl = document.getElementById('playerNameLeft');
       const rightNameEl = document.getElementById('playerNameRight');
 
@@ -602,42 +732,67 @@ export class UIManager {
 
     if (angleField) angleField.style.display = visible ? 'none' : '';
     if (velocityField) velocityField.style.display = visible ? 'none' : '';
+    if (this.directionField) this.directionField.style.display = visible ? 'none' : '';
     this.fireButton.style.display = visible ? 'none' : '';
-    this.rematchButton.style.display = visible ? 'inline-block' : 'none';
-    this.rematchButton.disabled = !visible;
+    if (this.rematchControls) this.rematchControls.hidden = !visible;
+    if (this.rematchButton) {
+      this.rematchButton.style.display = visible ? 'inline-block' : 'none';
+      this.rematchButton.disabled = !visible;
+    }
     if (visible) {
-      this.rematchButton.textContent = 'Play again';
+      if (this.rematchButton) this.rematchButton.textContent = 'Play again';
     }
   }
 
   /**
    * Show game over message
    */
-  public showGameOver(won: boolean, playerName: string, opponentName: string): void {
-    this.messageEl.textContent = won
-      ? `🎉 ${playerName} won! ${opponentName} lost.`
-      : `😔 ${playerName} lost. ${opponentName} won!`;
+  public showGameOver(winnerName: string): void;
+  public showGameOver(won: boolean, playerName: string, opponentName: string): void;
+  public showGameOver(winnerOrWon: string | boolean, playerName?: string, opponentName?: string): void {
+    this.messageEl.textContent = typeof winnerOrWon === 'string'
+      ? `🎉 ${winnerOrWon} won!`
+      : winnerOrWon
+        ? `🎉 ${playerName} won! ${opponentName} lost.`
+        : `😔 ${playerName} lost. ${opponentName} won!`;
     this.fireButton.disabled = true;
     this.setGameOverControlsVisible(true);
-    this.rematchButton.disabled = false;
-    this.rematchButton.textContent = 'Play again';
+    if (this.rematchButton) {
+      this.rematchButton.disabled = false;
+      this.rematchButton.textContent = 'Play again';
+      this.playAgainButton && (this.playAgainButton.disabled = false);
+      this.hadEnoughButton && (this.hadEnoughButton.disabled = false);
+    }
+    this.playAgainButton && (this.playAgainButton.disabled = false);
+    this.hadEnoughButton && (this.hadEnoughButton.disabled = false);
   }
 
   public setRematchWaiting(playersReady: number): void {
-    this.rematchButton.style.display = 'inline-block';
-    this.rematchButton.disabled = true;
-    this.rematchButton.textContent = `Waiting (${playersReady}/2)`;
+    if (this.rematchControls) this.rematchControls.hidden = false;
+    if (this.rematchButton) {
+      this.rematchButton.style.display = 'inline-block';
+      this.rematchButton.disabled = true;
+      this.rematchButton.textContent = `Waiting (${playersReady})`;
+    }
+  }
+
+  public setRematchAnswerSubmitted(): void {
+    if (this.playAgainButton) this.playAgainButton.disabled = true;
+    if (this.hadEnoughButton) this.hadEnoughButton.disabled = true;
   }
 
   public showRematchAvailable(): void {
-    this.rematchButton.style.display = 'inline-block';
-    this.rematchButton.disabled = false;
-    this.rematchButton.textContent = 'Play again';
+    if (this.rematchControls) this.rematchControls.hidden = false;
+    if (this.playAgainButton) this.playAgainButton.disabled = false;
+    if (this.hadEnoughButton) this.hadEnoughButton.disabled = false;
   }
 
   public prepareForNewRound(): void {
     this.setGameOverControlsVisible(false);
-    this.rematchButton.style.display = 'none';
-    this.rematchButton.disabled = true;
+    if (this.rematchControls) this.rematchControls.hidden = true;
+    if (this.rematchButton) {
+      this.rematchButton.style.display = 'none';
+      this.rematchButton.disabled = true;
+    }
   }
 }

@@ -95,6 +95,19 @@ describe('GameRules', () => {
     expect(game.lastActivityAt).toBe(500);
   });
 
+  it('switches back to player one after player two misses', () => {
+    const game = createGame();
+    game.status = 'active';
+    game.gameStarted = true;
+    game.battlefield = createFlatBattlefield();
+    game.currentTurn = 1;
+
+    const result = new GameRules().fire(game, 1, 45, 10, 600);
+
+    expect(result).toEqual({ kind: 'miss', nextPlayerId: 0 });
+    expect(game.currentTurn).toBe(0);
+  });
+
   it('finishes the game after a hit without switching turns', () => {
     const game = createGame();
     game.status = 'active';
@@ -120,7 +133,8 @@ describe('GameRules', () => {
     const rules = new GameRules();
     const waiting = rules.requestRematch(game, 0, 800);
 
-    expect(waiting).toEqual({ kind: 'waiting', playersReady: 1 });
+    expect(waiting).toMatchObject({ kind: 'waiting', playersAnswered: 1, playersReady: 1 });
+    expect(waiting.answers).toEqual(['play_again', null]);
     expect(game.rematchReady).toEqual([true, false]);
     expect(game.status).toBe('finished');
 
@@ -136,6 +150,59 @@ describe('GameRules', () => {
     expect(game.gameFinishedAt).toBeUndefined();
     expect(game.rematchReady).toEqual([false, false]);
     expect(game.battlefield).toEqual(started.kind === 'started' ? started.battlefield : null);
+  });
+
+  it('clears rematch answers when a final response declines a rematch', () => {
+    const game = createGame();
+    game.status = 'finished';
+    game.gameStarted = true;
+    game.round = 2;
+    game.gameFinishedAt = 700;
+    game.battlefield = createFlatBattlefield();
+
+    const rules = new GameRules();
+    const firstResponse = rules.requestRematch(game, 0, 'play_again', 800);
+    expect(firstResponse).toMatchObject({ kind: 'waiting', playersAnswered: 1, playersReady: 1 });
+    expect(firstResponse.answers).toEqual(['play_again', null]);
+
+    const finalResponse = rules.requestRematch(game, 1, 'had_enough', 900);
+    expect(finalResponse).toMatchObject({ kind: 'waiting', playersAnswered: 2, playersReady: 1 });
+    expect(finalResponse.answers).toEqual(['play_again', 'had_enough']);
+    expect(game.status).toBe('finished');
+    expect(game.round).toBe(2);
+    expect(game.rematchReady).toEqual([false, false]);
+    expect(game.rematchAnswers).toEqual([null, null]);
+  });
+
+  it('starts a new round with only the players who stayed in when another player had enough', () => {
+    const game = createGame();
+    game.status = 'finished';
+    game.gameStarted = true;
+    game.round = 2;
+    game.gameFinishedAt = 700;
+    game.battlefield = createFlatBattlefield();
+    game.lobbySlots = [
+      { playerId: 0, session: game.initiator, status: 'ready', active: true, eliminated: false },
+      { playerId: 1, session: game.invited, status: 'ready', active: true, eliminated: false },
+      { playerId: 2, session: { name: 'Charlie', sessionTokenHash: 'charlie-hash', websocket: null }, status: 'ready', active: true, eliminated: false }
+    ];
+    game.rematchAnswers = [null, null, null];
+    game.rematchReady = [false, false, false];
+
+    const rules = new GameRules();
+    const firstResponse = rules.requestRematch(game, 0, 'play_again', 800);
+    const secondResponse = rules.requestRematch(game, 1, 'play_again', 900);
+    const finalResponse = rules.requestRematch(game, 2, 'had_enough', 1000);
+
+    expect(firstResponse.kind).toBe('waiting');
+    expect(secondResponse.kind).toBe('waiting');
+    expect(finalResponse.kind).toBe('started');
+    expect(game.status).toBe('active');
+    expect(game.round).toBe(3);
+    expect(game.lobbySlots.filter(slot => slot.active && !slot.eliminated)).toHaveLength(2);
+    expect(game.lobbySlots.map(slot => slot.playerId)).toEqual([0, 1]);
+    expect(game.lobbySlots.filter(slot => slot.status === 'skipped').map(slot => slot.playerId)).toEqual([]);
+    expect(finalResponse.answers).toEqual(['play_again', 'play_again', 'had_enough']);
   });
 
   it('clears rematch readiness when a finished player disconnects', () => {
